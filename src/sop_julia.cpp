@@ -12,6 +12,7 @@
 #include <GA/GA_Handle.h>
 #include <GA/GA_AttributeFilter.h>
 #include <GA/GA_AttributeDict.h>
+#include <GA/GA_AIFTuple.h>
 
 #include <julia.h>
 
@@ -74,7 +75,8 @@ void SOP_julia::atExit(void*){
 
 typedef struct _entry3f{
     std::vector<double>* buffer;
-    GA_RWHandleV3 att_handle;
+    GA_Attribute* attr;
+    int tuple_size;
 } entry3f;
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
@@ -100,12 +102,13 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         // for now only float based attribs
         if(attr->getStorageClass()!=GA_StorageClass::GA_STORECLASS_FLOAT)continue;
 
-        if(attr->getTupleSize()==3){  // vector3 and shit
+        //if(attr->getTupleSize()==3){  // vector3 and shit
+        if(attr->getAIFTuple()){
             const UT_String attr_name = UT_String(attr->getName());
             if(cachedBuffers.find(attr_name)==cachedBuffers.end())
                 cachedBuffers[attr_name] = std::vector<double>();
 
-            cachedBuffers[attr_name].resize(gdp->getNumPoints()*3);  // ensure size
+            //cachedBuffers[attr_name].resize(gdp->getNumPoints()*3);  // ensure size
             
             if(codeFuncAttrs.length()==0)codeFuncAttrs+=attr_name;
             else {
@@ -114,12 +117,14 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
             }
 
             r_bind_entries3f.push_back({&cachedBuffers[attr_name],
-                                        GA_RWHandleV3(attr)
-                                       });
+                                        attr,
+                                        attr->getTupleSize()
+                                        });
             if(wattribs_filter.match(attr))
                 w_bind_entries3f.push_back({&cachedBuffers[attr_name],
-                                            GA_RWHandleV3(attr)
-                                           });
+                                            attr,
+                                            attr->getTupleSize()
+                                            });
         }
     }
     debug()<<codeFuncAttrs<<std::endl;
@@ -142,6 +147,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     */
 
     // store attrib data in vectors
+    for(entry3f& entry: r_bind_entries3f){
+        entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, gdp->getPointRange(), *entry.buffer);
+    }
+    /*
     GA_Offset block_start, block_end;
     size_t linid = 0;
     for(GA_Iterator it(gdp->getPointRange());it.blockAdvance(block_start, block_end);){
@@ -153,17 +162,9 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                     (*entry.buffer)[3*linid+i] = val[i];
                 }
             }
-            /*
-            UT_Vector3F vpos = pos_handle.get(off);
-            UT_Vector3F vcd = cd_handle.get(off);
-            for(int i=0;i<3;++i){
-                cachedBuffers["P"][3*linid+i] = vpos[i];
-                cachedBuffers["Cd"][3*linid+i] = vcd[i];
-            }
-            */
             ++linid;
         }
-    }
+    }*/
     // --
 
     // init jl variables
@@ -176,8 +177,9 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     ((ssize_t*)v2size)[1] = gdp->getNumPoints();
 
     // vector3 attributes
-    ((ssize_t*)v2size)[0] = 3;
+    //((ssize_t*)v2size)[0] = 3;
     for(entry3f& entry: r_bind_entries3f){
+        ((ssize_t*)v2size)[0] = entry.tuple_size;
         jl_values.push_back(jl_ptr_to_array(array_type2d, entry.buffer->data(), v2size, 0));
     }
 
@@ -245,6 +247,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     */
 
     // save results back to dgp
+    for(entry3f& entry: r_bind_entries3f){  // TODO: check if buffer was not resized somehow!
+        entry.attr->getAIFTuple()->setRange(entry.attr, gdp->getPointRange(), entry.buffer->data());
+    }
+    /*
     linid = 0;
     for(GA_Iterator it(gdp->getPointRange());it.blockAdvance(block_start, block_end);){
         for(GA_Offset off=block_start; off<block_end; ++off){
@@ -256,19 +262,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 }
                 entry.att_handle.set(off, val);
             }
-            /*
-            UT_Vector3F vpos;
-            UT_Vector3F vcd;
-            for(int i=0;i<3;++i){
-                vpos[i] = cachedBuffers["P"][3*linid+i];
-                vcd[i] = cachedBuffers["Cd"][3*linid+i];
-            }
-            pos_handle.set(off, vpos);
-            cd_handle.set(off, vcd);
-            */
+            
             ++linid;
         }
-    }
+    }*/
     // --
 
     return error();
