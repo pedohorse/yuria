@@ -180,6 +180,33 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     }*/
     // --
 
+    // init julia function
+    UT_String nodeFuncName;
+    getFullPath(nodeFuncName);
+    nodeFuncName.substitute('/', '_');
+    if(prevCode!=code || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs){
+        prevCode = code;
+        prevFuncName = nodeFuncName;
+        prevAttrs = codeFuncAttrs;
+        prevCode.hardenIfNeeded();
+        prevFuncName.hardenIfNeeded();
+        prevAttrs.hardenIfNeeded();
+
+        UT_String signature;
+        signature.sprintf("function %s(%s)\n", nodeFuncName.c_str(), codeFuncAttrs.c_str());
+        code.prepend(signature);
+        code.append("\nend");
+        debug()<<"applying new julia function"<<std::endl<<code<<std::endl;
+        jl_value_t *ret = jl_eval_string(code.c_str());
+        if(ret==NULL){
+            if(jl_exception_occurred())
+                addError(SOP_MESSAGE, jl_typeof_str(jl_exception_occurred()));
+            else
+                addError(SOP_MESSAGE, "something went wrong");
+            return error();
+        }
+    }
+
     // init jl variables
     std::vector<jl_value_t*> jl_values;
     // reference from here: https://discourse.julialang.org/t/api-reference-for-julia-embedding-in-c/3963/3
@@ -209,34 +236,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     //JL_GC_POP();
     // --
 
-    UT_String nodeFuncName;
-    getFullPath(nodeFuncName);
-    nodeFuncName.substitute('/', '_');
-    if(prevCode!=code || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs){
-        prevCode = code;
-        prevFuncName = nodeFuncName;
-        prevAttrs = codeFuncAttrs;
-        prevCode.hardenIfNeeded();
-        prevFuncName.hardenIfNeeded();
-        prevAttrs.hardenIfNeeded();
-
-        UT_String signature;
-        signature.sprintf("function %s(%s)\n", nodeFuncName.c_str(), codeFuncAttrs.c_str());
-        code.prepend(signature);
-        code.append("\nend");
-        debug()<<"applying new julia function"<<std::endl<<code<<std::endl;
-        //code.prepend(nodeFuncName);
-        //code.prepend("function ");
-        //code.append("\nend");
-        jl_array_t *ret = (jl_array_t*)jl_eval_string(code.c_str());
-        if(ret==NULL){
-            if(jl_exception_occurred())
-                addError(SOP_MESSAGE, jl_typeof_str(jl_exception_occurred()));
-            else
-                addError(SOP_MESSAGE, "something went wrong");
-            return error();
-        }
-    }
     jl_function_t *jfunc = jl_get_function(jl_main_module, nodeFuncName.c_str());
     if(jfunc==NULL){
         addError(SOP_MESSAGE, "couldn't get da function");
