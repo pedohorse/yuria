@@ -6,6 +6,7 @@
 #include <OP/OP_AutoLockInputs.h>
 #include <OP/OP_OperatorTable.h>
 #include <PRM/PRM_Include.h>
+#include <PRM/PRM_SpareData.h>
 #include <UT/UT_String.h>
 #include <UT/UT_DSOVersion.h>
 #include <UT/UT_Exit.h>
@@ -35,10 +36,11 @@ static PRM_Name prm_rattribs_name=PRM_Name("rattribs", "Attributes To Bind For R
 static PRM_Name prm_wattribs_name=PRM_Name("wattribs", "Attributes To Bind For Writing");
 static PRM_Default prm_rattribs_default = PRM_Default(0, "P Cd");
 static PRM_Default prm_wattribs_default = PRM_Default(0, "*");
+static PRM_SpareData prm_snippet_spare(PRM_SpareToken("editor", "1"));
 
 
 PRM_Template SOP_julia::parmtemplates[] = {
-    PRM_Template(PRM_STRING, 1, &prm_snippet_name),
+    PRM_Template(PRM_STRING, 1, &prm_snippet_name, 0, 0, 0, 0, &prm_snippet_spare),
     PRM_Template(PRM_STRING, 1, &prm_rattribs_name, &prm_rattribs_default),
     PRM_Template(PRM_STRING, 1, &prm_wattribs_name, &prm_wattribs_default),
     PRM_Template()
@@ -73,11 +75,11 @@ void SOP_julia::atExit(void*){
     }
 }
 
-typedef struct _entry3f{
+typedef struct _entryAIFtuple{
     std::vector<double>* buffer;
     GA_Attribute* attr;
     int tuple_size;
-} entry3f;
+} entryAIFtuple;
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     OP_AutoLockInputs inputlock(this);
@@ -93,7 +95,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
     UT_String codeFuncAttrs;
-    std::vector<entry3f> r_bind_entries3f, w_bind_entries3f;
+    std::vector<entryAIFtuple> r_bind_entries3f, w_bind_entries3f;
     for(GA_AttributeDict::iterator it=gdp->getAttributeDict(GA_ATTRIB_POINT).begin(GA_SCOPE_PUBLIC);
                                    !it.atEnd();
                                    ++it){
@@ -127,7 +129,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                                             });
         }
     }
-    debug()<<codeFuncAttrs<<std::endl;
 
     /*
     GA_RWHandleV3 pos_handle(gdp, GA_ATTRIB_POINT, "P");
@@ -147,7 +148,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     */
 
     // store attrib data in vectors
-    for(entry3f& entry: r_bind_entries3f){
+    for(entryAIFtuple& entry: r_bind_entries3f){
         entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, gdp->getPointRange(), *entry.buffer);
     }
     /*
@@ -178,7 +179,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
 
     // vector3 attributes
     //((ssize_t*)v2size)[0] = 3;
-    for(entry3f& entry: r_bind_entries3f){
+    for(entryAIFtuple& entry: r_bind_entries3f){
         ((ssize_t*)v2size)[0] = entry.tuple_size;
         jl_values.push_back(jl_ptr_to_array(array_type2d, entry.buffer->data(), v2size, 0));
     }
@@ -247,7 +248,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     */
 
     // save results back to dgp
-    for(entry3f& entry: r_bind_entries3f){  // TODO: check if buffer was not resized somehow!
+    for(entryAIFtuple& entry: r_bind_entries3f){  // TODO: check if buffer was not resized somehow!
         entry.attr->getAIFTuple()->setRange(entry.attr, gdp->getPointRange(), entry.buffer->data());
     }
     /*
