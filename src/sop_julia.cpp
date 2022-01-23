@@ -32,15 +32,18 @@ void newSopOperator(OP_OperatorTable *table){
 }
 
 static PRM_Name prm_snippet_name=PRM_Name("snippet", "Code");
+static PRM_Name prm_initsnippet_name=PRM_Name("initsnippet", "Initialization Code");
 static PRM_Name prm_rattribs_name=PRM_Name("rattribs", "Attributes To Bind For Reading");
 static PRM_Name prm_wattribs_name=PRM_Name("wattribs", "Attributes To Bind For Writing");
 static PRM_Name prm_include_time_name=PRM_Name("dotime", "Include Time Binding");
 static PRM_Default prm_rattribs_default = PRM_Default(0, "P Cd");
 static PRM_Default prm_wattribs_default = PRM_Default(0, "*");
 static PRM_SpareData prm_snippet_spare(PRM_SpareToken("editor", "1"));
+static PRM_SpareData prm_initsnippet_spare(PRM_SpareToken("editor", "1"));
 
 
 PRM_Template SOP_julia::parmtemplates[] = {
+    PRM_Template(PRM_STRING, 1, &prm_initsnippet_name, 0, 0, 0, 0, &prm_initsnippet_spare),
     PRM_Template(PRM_STRING, 1, &prm_snippet_name, 0, 0, 0, 0, &prm_snippet_spare),
     PRM_Template(PRM_TOGGLE, 1, &prm_include_time_name),
     PRM_Template(PRM_STRING, 1, &prm_rattribs_name, &prm_rattribs_default),
@@ -89,9 +92,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         return error();
 
     duplicateSource(0, context);
-    UT_String code, rattribs_pattern, wattribs_pattern;
+    UT_String initcode, code, rattribs_pattern, wattribs_pattern;
     fpreal curtime = context.getTime();
     evalString(code, prm_snippet_name.getTokenRef(), 0, curtime);
+    evalString(initcode, prm_initsnippet_name.getTokenRef(), 0, curtime);
     evalString(rattribs_pattern, prm_rattribs_name.getTokenRef(), 0, curtime);
     evalString(wattribs_pattern, prm_wattribs_name.getTokenRef(), 0, curtime);
     const bool dotime = evalInt(prm_include_time_name.getTokenRef(),0, curtime);
@@ -184,19 +188,21 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     UT_String nodeFuncName;
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
-    if(prevCode!=code || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs){
+    if(prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs){
         prevCode = code;
+        prevInitCode = initcode;
         prevFuncName = nodeFuncName;
         prevAttrs = codeFuncAttrs;
         prevCode.hardenIfNeeded();
+        prevInitCode.hardenIfNeeded();
         prevFuncName.hardenIfNeeded();
         prevAttrs.hardenIfNeeded();
 
         UT_String signature;
-        signature.sprintf("function %s(%s)\n", nodeFuncName.c_str(), codeFuncAttrs.c_str());
+        signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", nodeFuncName.c_str(), initcode.c_str(), codeFuncAttrs.c_str());
         code.prepend(signature);
-        code.append("\nend");
-        debug()<<"applying new julia function"<<std::endl<<code<<std::endl;
+        code.append("\nend\nend");
+        debug()<<"applying new julia module"<<std::endl<<code<<std::endl;
         jl_value_t *ret = jl_eval_string(code.c_str());
         if(ret==NULL){
             if(jl_exception_occurred())
@@ -236,7 +242,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     //JL_GC_POP();
     // --
 
-    jl_function_t *jfunc = jl_get_function(jl_main_module, nodeFuncName.c_str());
+    jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(nodeFuncName.c_str())), "_hou_do_my_stuff");
     if(jfunc==NULL){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();

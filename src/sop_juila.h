@@ -14,7 +14,7 @@ public:
 protected:
     OP_ERROR cookMySop(OP_Context &context) override;
 private:
-    UT_String prevCode, prevFuncName, prevAttrs;
+    UT_String prevCode, prevInitCode, prevFuncName, prevAttrs;
     std::map<UT_String,std::vector<double>> cachedBuffers;
 
     static size_t instance_count;
