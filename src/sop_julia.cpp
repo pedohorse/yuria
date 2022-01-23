@@ -34,6 +34,7 @@ void newSopOperator(OP_OperatorTable *table){
 static PRM_Name prm_snippet_name=PRM_Name("snippet", "Code");
 static PRM_Name prm_rattribs_name=PRM_Name("rattribs", "Attributes To Bind For Reading");
 static PRM_Name prm_wattribs_name=PRM_Name("wattribs", "Attributes To Bind For Writing");
+static PRM_Name prm_include_time_name=PRM_Name("dotime", "Include Time Binding");
 static PRM_Default prm_rattribs_default = PRM_Default(0, "P Cd");
 static PRM_Default prm_wattribs_default = PRM_Default(0, "*");
 static PRM_SpareData prm_snippet_spare(PRM_SpareToken("editor", "1"));
@@ -41,6 +42,7 @@ static PRM_SpareData prm_snippet_spare(PRM_SpareToken("editor", "1"));
 
 PRM_Template SOP_julia::parmtemplates[] = {
     PRM_Template(PRM_STRING, 1, &prm_snippet_name, 0, 0, 0, 0, &prm_snippet_spare),
+    PRM_Template(PRM_TOGGLE, 1, &prm_include_time_name),
     PRM_Template(PRM_STRING, 1, &prm_rattribs_name, &prm_rattribs_default),
     PRM_Template(PRM_STRING, 1, &prm_wattribs_name, &prm_wattribs_default),
     PRM_Template()
@@ -88,9 +90,11 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
 
     duplicateSource(0, context);
     UT_String code, rattribs_pattern, wattribs_pattern;
-    evalString(code, prm_snippet_name.getToken(), 0, context.getTime());
-    evalString(rattribs_pattern, prm_rattribs_name.getToken(), 0, context.getTime());
-    evalString(wattribs_pattern, prm_wattribs_name.getToken(), 0, context.getTime());
+    fpreal curtime = context.getTime();
+    evalString(code, prm_snippet_name.getTokenRef(), 0, curtime);
+    evalString(rattribs_pattern, prm_rattribs_name.getTokenRef(), 0, curtime);
+    evalString(wattribs_pattern, prm_wattribs_name.getTokenRef(), 0, curtime);
+    const bool dotime = evalInt(prm_include_time_name.getTokenRef(),0, curtime);
     GA_AttributeFilter rattribs_filter(GA_AttributeFilter::selectByPattern(rattribs_pattern));
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
@@ -128,6 +132,14 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                                             attr->getTupleSize()
                                             });
         }
+    }
+    if(codeFuncAttrs.length() == 0){
+        addWarning(SOP_MESSAGE, "no attributes binded, code not executed");
+        return error();
+    }
+    if(dotime){
+        codeFuncAttrs += ", Time";
+        flags().setTimeDep(true);
     }
 
     /*
@@ -169,7 +181,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     // --
 
     // init jl variables
-    std::vector<jl_array_t*> jl_values;
+    std::vector<jl_value_t*> jl_values;
     // reference from here: https://discourse.julialang.org/t/api-reference-for-julia-embedding-in-c/3963/3
     jl_value_t *array_type2d = jl_apply_array_type((jl_value_t*)jl_float64_type, 2);
     jl_value_t *t2types[] = {(jl_value_t*)jl_long_type, (jl_value_t*)jl_long_type};
@@ -181,7 +193,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     //((ssize_t*)v2size)[0] = 3;
     for(entryAIFtuple& entry: r_bind_entries3f){
         ((ssize_t*)v2size)[0] = entry.tuple_size;
-        jl_values.push_back(jl_ptr_to_array(array_type2d, entry.buffer->data(), v2size, 0));
+        jl_values.push_back((jl_value_t*)jl_ptr_to_array(array_type2d, entry.buffer->data(), v2size, 0));
+    }
+    if(dotime){
+        jl_values.push_back(jl_box_float64(curtime));
     }
 
     //JL_GC_PUSH3(&v2size, &pos_jl, &cd_jl);  // so it's not deleted during next allocations
@@ -227,7 +242,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();
     }
-    jl_call(jfunc, (jl_value_t**)(jl_values.data()), jl_values.size());
+    jl_call(jfunc, jl_values.data(), jl_values.size());
     /*
     jl_call2(jfunc, (jl_value_t*)pos_jl, (jl_value_t*)cd_jl);
     */
