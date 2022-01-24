@@ -224,6 +224,12 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         ret = jl_eval_string(precomp.c_str());
         if(ret!=NULL) debug()<<jl_unbox_bool(ret)<<std::endl;
         debug()<<"precompiling done"<<std::endl;
+
+        // even with precompile julia has observed ~75% to crash on first execution of threaded code AFTER executing certain amount of nonthreaded code
+        // hard to understand, hard to pinpoint wtf is happening, i'm blaming jit+gc+houdini's threads, 
+        // cuz it crashes definetely somewhere during compilation and garbage collection in it's own julia threads...
+        // anyway, disabling gc for this moment of first compilation seem to fix the observed issues
+        // hence here it is
         jl_gc_enable(0);
     }
 
