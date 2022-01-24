@@ -15,7 +15,8 @@ protected:
     OP_ERROR cookMySop(OP_Context &context) override;
 private:
     UT_String prevCode, prevInitCode, prevFuncName, prevAttrs;
-    std::map<UT_String,std::vector<double>> cachedBuffers;
+    std::map<UT_String,std::vector<double>> cachedBuffersf64;
+    std::map<UT_String,std::vector<int64>> cachedBuffersi64;
 
     static size_t instance_count;
     static bool jl_initialized;
