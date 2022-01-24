@@ -102,7 +102,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     GA_AttributeFilter rattribs_filter(GA_AttributeFilter::selectByPattern(rattribs_pattern));
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
-    UT_String codeFuncAttrs;
+    UT_String codeFuncAttrs, compileTypes;
     std::vector<entryAIFtuple> r_bind_entries3f, w_bind_entries3f;
     for(GA_AttributeDict::iterator it=gdp->getAttributeDict(GA_ATTRIB_POINT).begin(GA_SCOPE_PUBLIC);
                                    !it.atEnd();
@@ -120,11 +120,15 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
 
             //cachedBuffers[attr_name].resize(gdp->getNumPoints()*3);  // ensure size
             
-            if(codeFuncAttrs.length()==0)codeFuncAttrs+=attr_name;
-            else {
+            if(codeFuncAttrs.length()==0){
+                codeFuncAttrs+=attr_name;
+                compileTypes += "Array{Float64,2}";
+            } else {
                 codeFuncAttrs += ", ";
                 codeFuncAttrs += attr_name;
+                compileTypes += ", Array{Float64,2}";
             }
+            codeFuncAttrs += "::Array{Float64,2}";
 
             r_bind_entries3f.push_back({&cachedBuffers[attr_name],
                                         attr,
@@ -142,7 +146,8 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         return error();
     }
     if(dotime){
-        codeFuncAttrs += ", Time";
+        codeFuncAttrs += ", Time::Float64";
+        compileTypes += ", Float64";
         flags().setTimeDep(true);
     }
 
@@ -188,7 +193,8 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     UT_String nodeFuncName;
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
-    if(prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs){
+    const bool updatingDefinitions = prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs;
+    if(updatingDefinitions){
         prevCode = code;
         prevInitCode = initcode;
         prevFuncName = nodeFuncName;
@@ -211,6 +217,14 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 addError(SOP_MESSAGE, "something went wrong");
             return error();
         }
+
+        UT_String precomp;
+        precomp.sprintf("precompile(%s._hou_do_my_stuff, (%s))", nodeFuncName.c_str(), compileTypes.c_str());
+        debug()<<"precompiling "<<precomp<<std::endl;
+        ret = jl_eval_string(precomp.c_str());
+        if(ret!=NULL) debug()<<jl_unbox_bool(ret)<<std::endl;
+        debug()<<"precompiling done"<<std::endl;
+        jl_gc_enable(0);
     }
 
     // init jl variables
@@ -248,6 +262,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         return error();
     }
     jl_call(jfunc, jl_values.data(), jl_values.size());
+    if(updatingDefinitions)jl_gc_enable(1);
     /*
     jl_call2(jfunc, (jl_value_t*)pos_jl, (jl_value_t*)cd_jl);
     */
