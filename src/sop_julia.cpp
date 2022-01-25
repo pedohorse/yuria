@@ -60,6 +60,8 @@ bool SOP_julia::jl_initialized=false;
 
 SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Node(net, name, op){
     if(!jl_initialized){
+        //jl_options.handle_signals = JL_OPTIONS_HANDLE_SIGNALS_OFF;
+        //jl_options.compile_enabled = JL_OPTIONS_COMPILE_ALL;
         jl_init();
         UT_Exit::addExitCallback(SOP_julia::atExit);
         jl_initialized=true;
@@ -220,10 +222,12 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     // --
 
     // init julia function
+    jl_gc_enable(0);
     UT_String nodeFuncName;
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
     const bool updatingDefinitions = prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs;
+    const bool needNoGcRun = updatingDefinitions && ( code.findString("Threads.", false, false) || initcode.findString("Threads.", false, false));  // CHEATS !!!
     if(updatingDefinitions){
         prevCode = code;
         prevInitCode = initcode;
@@ -253,13 +257,15 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         ret = jl_eval_string(precomp.c_str());
         if(ret!=NULL) debug()<<jl_unbox_bool(ret)<<std::endl;
         debug()<<"precompiling done"<<std::endl;
-
+    }
+    if(needNoGcRun){
         // even with precompile julia has observed ~75% to crash on first execution of threaded code AFTER executing certain amount of nonthreaded code
         // hard to understand, hard to pinpoint wtf is happening, i'm blaming jit+gc+houdini's threads, 
         // cuz it crashes definetely somewhere during compilation and garbage collection in it's own julia threads...
         // anyway, disabling gc for this moment of first compilation seem to fix the observed issues
         // hence here it is
-        jl_gc_enable(0);
+        //debug()<<"first run with no GC"<<std::endl;
+        //jl_gc_enable(0);
     }
 
     // init jl variables
@@ -307,10 +313,22 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();
     }
-    jl_call(jfunc, jl_values.data(), jl_values.size());
-    if(updatingDefinitions){
-        jl_gc_enable(1);
-        jl_gc_collect(JL_GC_AUTO);
+    jl_gc_enable(1);
+    {
+        jl_value_t **jldata;
+        size_t nvalues0 = jl_values.size();
+        JL_GC_PUSHARGS(jldata, nvalues0);
+        for(int i=0;i<nvalues0;++i){
+             jldata[i] = jl_values[i];
+        }
+        jl_call(jfunc, jldata, nvalues0);
+        JL_GC_POP();
+    }
+
+    if(needNoGcRun){
+        //jl_gc_enable(1);
+        //debug()<<"no gc run: running gc manually"<<std::endl;
+        //jl_gc_collect(JL_GC_FULL);
     }
     /*
     jl_call2(jfunc, (jl_value_t*)pos_jl, (jl_value_t*)cd_jl);
