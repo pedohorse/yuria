@@ -88,6 +88,11 @@ typedef struct _entryAIFtuple{
     int tuple_size;
 } entryAIFtuple;
 
+static std::map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
+        {GA_StorageClass::GA_STORECLASS_FLOAT, "Array{Float64,2}"},
+        {GA_StorageClass::GA_STORECLASS_INT, "Array{Int64,2}"}
+    };
+
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     OP_AutoLockInputs inputlock(this);
     if(inputlock.lock(context) >= UT_ERROR_ABORT)
@@ -104,7 +109,9 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     GA_AttributeFilter rattribs_filter(GA_AttributeFilter::selectByPattern(rattribs_pattern));
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
-    UT_String codeFuncAttrs, compileTypes;
+    std::string codeFuncAttrs, compileTypes;
+    codeFuncAttrs.reserve(256); //   cuz lazy
+    compileTypes.reserve(256);  //        why not  TODO: no point recreating every cook - keep in class instance
     std::vector<entryAIFtuple> r_bind_entries3f, w_bind_entries3f;
     for(GA_AttributeDict::iterator it=gdp->getAttributeDict(GA_ATTRIB_POINT).begin(GA_SCOPE_PUBLIC);
                                    !it.atEnd();
@@ -125,16 +132,14 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 cachedBuffersi64[attr_name] = std::vector<int64>();
 
             //cachedBuffers[attr_name].resize(gdp->getNumPoints()*3);  // ensure size
-            
-            if(codeFuncAttrs.length()==0){
-                codeFuncAttrs+=attr_name;
-                compileTypes += "Array{Float64,2}";
-            } else {
+            if(codeFuncAttrs.length()>0){
                 codeFuncAttrs += ", ";
-                codeFuncAttrs += attr_name;
-                compileTypes += ", Array{Float64,2}";
+                compileTypes += ", ";
             }
-            codeFuncAttrs += "::Array{Float64,2}";
+            codeFuncAttrs += attr_name;
+            codeFuncAttrs += "::";
+            codeFuncAttrs += h2jFloatTypeMapping[attrClass];
+            compileTypes += h2jFloatTypeMapping[attrClass];
 
             r_bind_entries3f.push_back({attrClass,
                                         attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cachedBuffersf64[attr_name]:NULL,
@@ -227,7 +232,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         prevCode.hardenIfNeeded();
         prevInitCode.hardenIfNeeded();
         prevFuncName.hardenIfNeeded();
-        prevAttrs.hardenIfNeeded();
 
         UT_String signature;
         signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", nodeFuncName.c_str(), initcode.c_str(), codeFuncAttrs.c_str());
@@ -265,12 +269,12 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     jl_value_t *array_type2l = jl_apply_array_type((jl_value_t*)jl_int64_type, 2);
     jl_value_t *t2types[] = {(jl_value_t*)jl_long_type, (jl_value_t*)jl_long_type};
     jl_tupletype_t *t2t = jl_apply_tuple_type_v(t2types, 2);
-    jl_value_t* v2size = jl_new_struct_uninit(t2t);
-    ((ssize_t*)v2size)[1] = gdp->getNumPoints();
 
     // vector3 attributes
     //((ssize_t*)v2size)[0] = 3;
     for(entryAIFtuple& entry: r_bind_entries3f){
+        jl_value_t* v2size = jl_new_struct_uninit(t2t);
+        ((ssize_t*)v2size)[1] = gdp->getNumPoints();
         ((ssize_t*)v2size)[0] = entry.tuple_size;
         switch(entry.type){
             case GA_StorageClass::GA_STORECLASS_FLOAT:
@@ -304,7 +308,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         return error();
     }
     jl_call(jfunc, jl_values.data(), jl_values.size());
-    if(updatingDefinitions)jl_gc_enable(1);
+    if(updatingDefinitions){
+        jl_gc_enable(1);
+        jl_gc_collect(JL_GC_AUTO);
+    }
     /*
     jl_call2(jfunc, (jl_value_t*)pos_jl, (jl_value_t*)cd_jl);
     */
