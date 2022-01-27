@@ -1,3 +1,4 @@
+#include <julia.h>
 
 #include "sop_juila.h"
 
@@ -10,12 +11,12 @@
 #include <UT/UT_String.h>
 #include <UT/UT_DSOVersion.h>
 #include <UT/UT_Exit.h>
+#include <UT/UT_Thread.h>
 #include <GA/GA_Handle.h>
 #include <GA/GA_AttributeFilter.h>
 #include <GA/GA_AttributeDict.h>
 #include <GA/GA_AIFTuple.h>
 
-#include <julia.h>
 
 static std::ostream& debug(){
     return std::cout;
@@ -60,8 +61,7 @@ bool SOP_julia::jl_initialized=false;
 
 SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Node(net, name, op){
     if(!jl_initialized){
-        //jl_options.handle_signals = JL_OPTIONS_HANDLE_SIGNALS_OFF;
-        //jl_options.compile_enabled = JL_OPTIONS_COMPILE_ALL;
+        jl_options.handle_signals = JL_OPTIONS_HANDLE_SIGNALS_OFF;
         jl_init();
         UT_Exit::addExitCallback(SOP_julia::atExit);
         jl_initialized=true;
@@ -99,6 +99,8 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     OP_AutoLockInputs inputlock(this);
     if(inputlock.lock(context) >= UT_ERROR_ABORT)
         return error();
+
+    
 
     duplicateSource(0, context);
     UT_String initcode, code, rattribs_pattern, wattribs_pattern;
@@ -222,7 +224,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     // --
 
     // init julia function
-    jl_gc_enable(0);
+    //jl_gc_enable(0);
     UT_String nodeFuncName;
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
@@ -313,17 +315,19 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();
     }
-    jl_gc_enable(1);
-    {
+    /*{  // this is not needed cuz this is exactly what jl_call does itself - see jlapi.c
         jl_value_t **jldata;
         size_t nvalues0 = jl_values.size();
-        JL_GC_PUSHARGS(jldata, nvalues0);
+        JL_GC_PUSHARGS(jldata, nvalues0+1);
         for(int i=0;i<nvalues0;++i){
              jldata[i] = jl_values[i];
         }
-        jl_call(jfunc, jldata, nvalues0);
+        jldata[nvalues0] = jfunc;
+        jl_call(jldata[nvalues0], jldata, nvalues0);
         JL_GC_POP();
-    }
+    }*/
+    jl_gc_enable(1);
+    jl_call(jfunc, jl_values.data(), jl_values.size());
 
     if(needNoGcRun){
         //jl_gc_enable(1);
