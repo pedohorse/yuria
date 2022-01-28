@@ -1,0 +1,88 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "cppbuild",
+			"label": "C/C++: cpp build active file",
+			"command": "/usr/bin/g++",
+			"args": [
+				"-fdiagnostics-color=always",
+				"${workspaceFolder}/src/*.cpp",
+
+				"-I${HOU_DIR}/toolkit/include/",
+				"-I${HOME}/git/yuria/julia/include/julia/",
+				"--shared",
+				
+				"-g",
+				"-DMAKING_DSO",
+				"-DVERSION=\"${HOU_VER}\"",
+				"-D_GLIBCXX_USE_CXX11_ABI=0",
+				"-D_GNU_SOURCE",
+				"-DLINUX",
+				"-DAMD64",
+				"-m64",
+				"-fPIC",
+				"-DSIZEOF_VOID_P=8",
+				"-DFBX_ENABLED=1",
+				"-DOPENCL_ENABLED=1",
+				"-DOPENVDB_ENABLED=1",
+				"-DSESI_LITTLE_ENDIAN",
+				"-DENABLE_THREADS",
+				"-DUSE_PTHREADS",
+				"-D_REENTRANT",
+				"-D_FILE_OFFSET_BITS=64",
+				"-faligned-new",
+				"-DGCC4",
+				"-DGCC3",
+				"-Wno-deprecated",
+				"-std=c++14",
+				"-isystem",
+				"${HFS_DIR}/toolkit/include",
+				"-isystem",
+				"${HFS_DIR}/toolkit/include/python2.7",
+				"-Wall",
+				"-W",
+				"-Wno-parentheses",
+				"-Wno-sign-compare",
+				"-Wno-reorder",
+				"-Wno-uninitialized",
+				"-Wunused",
+				"-Wno-unused-parameter",
+				"-Wno-unused-local-typedefs",
+				"-O3",
+				"-fno-strict-aliasing",
+
+				"-L/usr/X11R6/lib64",
+				"-L/usr/X11R6/lib",
+				"-lGL",
+				"-lX11",
+				"-lXext",
+				"-lXi",
+				"-ldl",
+				
+				"-Wl,-rpath,'$ORIGIN/julia/lib/'",
+				"-L${HOME}/git/yuria/julia/lib/",
+				"-ljulia",
+				
+				"-o",
+				"${workspaceFolder}/hfs/dso/${fileBasenameNoExtension}.so"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"PATH": "/usr/local/bin:/usr/bin:/bin",
+					"HOU_DIR": "/opt/hfs18.5.408",
+					"HOU_VER": "18.5.408"
+				}
+			},
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"detail": "compiler: /bin/gcc"
+		}
+	]
+}
