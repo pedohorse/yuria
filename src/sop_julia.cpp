@@ -279,7 +279,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         return error();
     }
     // ROOTing is not needed cuz this is exactly what jl_call does itself - see jlapi.c
-    jl_gc_enable(1);
+    //jl_gc_enable(1);
     jl_call(jfunc, jl_values.data(), jl_values.size());
 
     if(needNoGcRun){
@@ -295,7 +295,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         jl_value_t *showerror_fun = jl_get_function(jl_base_module, "showerror");
     
         const char* exc_details = jl_string_ptr(jl_call2(sprint_fun, showerror_fun, exc));
-        addError(SOP_MESSAGE, exc_details);
+        addError(SOP_MESSAGE, exc_details);  // TODO: houdini only knows ascii, sanitize the string
         return error();
     }
 
