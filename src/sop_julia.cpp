@@ -61,8 +61,10 @@ bool SOP_julia::jl_initialized=false;
 
 SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Node(net, name, op){
     if(!jl_initialized){
-        jl_options.handle_signals = JL_OPTIONS_HANDLE_SIGNALS_OFF;
+        printf("2HELLO, I AM %d\n", pthread_self());
         jl_init();
+        jl_eval_string("println(Threads.nthreads())");
+        jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
         UT_Exit::addExitCallback(SOP_julia::atExit);
         jl_initialized=true;
     }
@@ -96,6 +98,7 @@ static std::map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
     };
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
+    printf("3HELLO, I AM %d\n", pthread_self());
     OP_AutoLockInputs inputlock(this);
     if(inputlock.lock(context) >= UT_ERROR_ABORT)
         return error();
@@ -191,7 +194,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     }
 
     // init julia function
-    //jl_gc_enable(0);
     UT_String nodeFuncName;
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
@@ -243,25 +245,40 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     }
 
     // init jl variables
+    //jl_gc_enable(0);
+    jl_value_t **gc_allvals;
+    const size_t gc_allvals_count = 2*r_bind_entries3f.size() + dotime + 4;
+    size_t gc_allvals_counter = 0;
+    JL_GC_PUSHARGS(gc_allvals, gc_allvals_count);
     std::vector<jl_value_t*> jl_values;
     // reference from here: https://discourse.julialang.org/t/api-reference-for-julia-embedding-in-c/3963/3
     jl_value_t *array_type2d = jl_apply_array_type((jl_value_t*)jl_float64_type, 2);
+    gc_allvals[gc_allvals_counter++] = array_type2d;
     jl_value_t *array_type2l = jl_apply_array_type((jl_value_t*)jl_int64_type, 2);
+    gc_allvals[gc_allvals_counter++] = array_type2l;
     jl_value_t *t2types[] = {(jl_value_t*)jl_long_type, (jl_value_t*)jl_long_type};
+    gc_allvals[gc_allvals_counter++] = t2types[0];
+    gc_allvals[gc_allvals_counter++] = t2types[1];
     jl_tupletype_t *t2t = jl_apply_tuple_type_v(t2types, 2);
 
     // vector3 attributes
     //((ssize_t*)v2size)[0] = 3;
     for(entryAIFtuple& entry: r_bind_entries3f){
         jl_value_t* v2size = jl_new_struct_uninit(t2t);
+        gc_allvals[gc_allvals_counter++] = v2size;
         ((ssize_t*)v2size)[1] = gdp->getNumPoints();
         ((ssize_t*)v2size)[0] = entry.tuple_size;
+        jl_value_t* val;
         switch(entry.type){
             case GA_StorageClass::GA_STORECLASS_FLOAT:
-                jl_values.push_back((jl_value_t*)jl_ptr_to_array(array_type2d, entry.buffer_f64->data(), v2size, 0));
+                val = (jl_value_t*)jl_ptr_to_array(array_type2d, entry.buffer_f64->data(), v2size, 0);
+                jl_values.push_back(val);
+                gc_allvals[gc_allvals_counter++] = val;
                 break;
             case GA_StorageClass::GA_STORECLASS_INT:
-                jl_values.push_back((jl_value_t*)jl_ptr_to_array(array_type2l, entry.buffer_i64->data(), v2size, 0));
+                val = (jl_value_t*)jl_ptr_to_array(array_type2l, entry.buffer_i64->data(), v2size, 0);
+                jl_values.push_back(val);
+                gc_allvals[gc_allvals_counter++] = val;
                 break;
             default:
                 addError(SOP_MESSAGE, "internal type binding error!");
@@ -269,7 +286,9 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         }
     }
     if(dotime){
-        jl_values.push_back(jl_box_float64(curtime));
+        jl_value_t* val = jl_box_float64(curtime);
+        jl_values.push_back(val);
+        gc_allvals[gc_allvals_counter++] = val;
     }
 
 
@@ -278,9 +297,11 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();
     }
-    // ROOTing is not needed cuz this is exactly what jl_call does itself - see jlapi.c
     //jl_gc_enable(1);
+    // ROOTing is not needed cuz this is exactly what jl_call does itself - see jlapi.c
+    if(gc_allvals_count != gc_allvals_counter)debug()<<"GC ALLOC MISMATCH"<<gc_allvals_count<<"/"<<gc_allvals_counter<<std::endl;
     jl_call(jfunc, jl_values.data(), jl_values.size());
+    JL_GC_POP();
 
     if(needNoGcRun){
         //jl_gc_enable(1);
