@@ -72,7 +72,7 @@ SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Nod
 SOP_julia::~SOP_julia(){
     --instance_count;
     debug()<<"shark"<<std::endl;
-    // TODO: delete created functions from main module maybe?
+    // TODO: delete created functions from main module maybe? is it even possible?
 }
 
 void SOP_julia::atExit(void*){
@@ -175,23 +175,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         debug()<<spareParmTemp->getToken()<<"::"<<spareParmTemp->getLabel()<<"||"<<spareParmTemp->getType()<<std::endl;
     }
 
-    /*
-    GA_RWHandleV3 pos_handle(gdp, GA_ATTRIB_POINT, "P");
-    /GA_RWHandleV3 cd_handle(gdp, GA_ATTRIB_POINT, "Cd");
-    if(cachedBuffers.find("P")==cachedBuffers.end())
-        cachedBuffers["P"] = std::vector<double>();
-    if(cachedBuffers.find("Cd")==cachedBuffers.end())
-        cachedBuffers["Cd"] = std::vector<double>();
-    */
-    /*
-    std::vector<std::vector<double>*> used_buffers;
-    used_buffers.resize(2);
-    used_buffers[0]=&cachedBuffers["P"];
-    used_buffers[1]=&cachedBuffers["Cd"];
-    used_buffers[0]->resize(gdp->getNumPoints()*3);
-    used_buffers[1]->resize(gdp->getNumPoints()*3);  //hm.....
-    */
-
     // store attrib data in vectors
     for(entryAIFtuple& entry: r_bind_entries3f){
         switch(entry.type){
@@ -206,22 +189,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 return error();
         }
     }
-    /*
-    GA_Offset block_start, block_end;
-    size_t linid = 0;
-    for(GA_Iterator it(gdp->getPointRange());it.blockAdvance(block_start, block_end);){
-        for(GA_Offset off=block_start; off<block_end; ++off){
-            // vector3 attributes
-            for(entry3f& entry: r_bind_entries3f){
-                UT_Vector3F val = entry.att_handle.get(off);
-                for(int i=0;i<3;++i){
-                    (*entry.buffer)[3*linid+i] = val[i];
-                }
-            }
-            ++linid;
-        }
-    }*/
-    // --
 
     // init julia function
     //jl_gc_enable(0);
@@ -246,9 +213,14 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         debug()<<"applying new julia module"<<std::endl<<code<<std::endl;
         jl_value_t *ret = jl_eval_string(code.c_str());
         if(ret==NULL){
-            if(jl_exception_occurred())
-                addError(SOP_MESSAGE, jl_typeof_str(jl_exception_occurred()));
-            else
+            if(jl_exception_occurred()){
+                jl_value_t *exc = jl_exception_occurred();
+                jl_value_t *sprint_fun = jl_get_function(jl_base_module, "sprint");
+                jl_value_t *showerror_fun = jl_get_function(jl_base_module, "showerror");
+            
+                const char* exc_details = jl_string_ptr(jl_call2(sprint_fun, showerror_fun, exc));
+                addError(SOP_MESSAGE, exc_details);
+            }else
                 addError(SOP_MESSAGE, "something went wrong");
             return error();
         }
@@ -300,32 +272,13 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         jl_values.push_back(jl_box_float64(curtime));
     }
 
-    //JL_GC_PUSH3(&v2size, &pos_jl, &cd_jl);  // so it's not deleted during next allocations
-    /*
-    jl_array_t *pos_jl = jl_ptr_to_array(array_type2d, cachedBuffers["P"].data(), v2size, 0);
-    jl_array_t *cd_jl = jl_ptr_to_array(array_type2d, cachedBuffers["Cd"].data(), v2size, 0);
-    */
-    //jl_array_t *pos_jl = jl_ptr_to_array_1d(array_type, pos_data.data(), pos_data.size(), 0);
-    //jl_array_t *cd_jl = jl_ptr_to_array_1d(array_type, cd_data.data(), cd_data.size(), 0);
-    //JL_GC_POP();
-    // --
 
     jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(nodeFuncName.c_str())), "_hou_do_my_stuff");
     if(jfunc==NULL){
         addError(SOP_MESSAGE, "couldn't get da function");
         return error();
     }
-    /*{  // this is not needed cuz this is exactly what jl_call does itself - see jlapi.c
-        jl_value_t **jldata;
-        size_t nvalues0 = jl_values.size();
-        JL_GC_PUSHARGS(jldata, nvalues0+1);
-        for(int i=0;i<nvalues0;++i){
-             jldata[i] = jl_values[i];
-        }
-        jldata[nvalues0] = jfunc;
-        jl_call(jldata[nvalues0], jldata, nvalues0);
-        JL_GC_POP();
-    }*/
+    // ROOTing is not needed cuz this is exactly what jl_call does itself - see jlapi.c
     jl_gc_enable(1);
     jl_call(jfunc, jl_values.data(), jl_values.size());
 
@@ -334,24 +287,17 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         //debug()<<"no gc run: running gc manually"<<std::endl;
         //jl_gc_collect(JL_GC_FULL);
     }
-    /*
-    jl_call2(jfunc, (jl_value_t*)pos_jl, (jl_value_t*)cd_jl);
-    */
+    
     // note: we dont care aboug GC here, as even if arrays were collected - we do not reuse them, and we own the buffers.
     if(jl_exception_occurred()){
-        addError(SOP_MESSAGE, jl_typeof_str(jl_exception_occurred()));
+        jl_value_t *exc = jl_exception_occurred();
+        jl_value_t *sprint_fun = jl_get_function(jl_base_module, "sprint");
+        jl_value_t *showerror_fun = jl_get_function(jl_base_module, "showerror");
+    
+        const char* exc_details = jl_string_ptr(jl_call2(sprint_fun, showerror_fun, exc));
+        addError(SOP_MESSAGE, exc_details);
         return error();
     }
-
-    /*
-    double *data = (double*)jl_array_data(ret);
-    size_t array_size = jl_array_len(ret);
-    std::cout<<"res size is: "<<array_size<<std::endl;
-    for(size_t i=0;i<array_size;++i){
-        std::cout<<data[i]<<"  ";
-    }
-    std::cout<<std::endl;
-    */
 
     // save results back to dgp
     for(entryAIFtuple& entry: w_bind_entries3f){  // TODO: check if buffer was not resized somehow!
@@ -367,22 +313,6 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 return error();
         }
     }
-    /*
-    linid = 0;
-    for(GA_Iterator it(gdp->getPointRange());it.blockAdvance(block_start, block_end);){
-        for(GA_Offset off=block_start; off<block_end; ++off){
-            // vector3 attributes
-            for(entry3f& entry: w_bind_entries3f){
-                UT_Vector3F val;
-                for(int i=0;i<3;++i){
-                    val[i] = (*entry.buffer)[3*linid+i];
-                }
-                entry.att_handle.set(off, val);
-            }
-            
-            ++linid;
-        }
-    }*/
     // --
 
     return error();
