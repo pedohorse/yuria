@@ -71,8 +71,8 @@
 				"cwd": "${workspaceFolder}",
 				"env": {
 					"PATH": "/usr/local/bin:/usr/bin:/bin",
-					"HOU_DIR": "/opt/hfs18.5.408",
-					"HOU_VER": "18.5.408"
+					"HOU_DIR": "/opt/hfs19.0.383",
+					"HOU_VER": "19.0.383"
 				}
 			},
 			"problemMatcher": [
