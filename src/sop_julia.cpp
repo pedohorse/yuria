@@ -12,6 +12,7 @@
 #include <UT/UT_DSOVersion.h>
 #include <UT/UT_Exit.h>
 #include <UT/UT_Thread.h>
+#include <UT/UT_Signal.h>
 #include <GA/GA_Handle.h>
 #include <GA/GA_AttributeFilter.h>
 #include <GA/GA_AttributeDict.h>
@@ -56,18 +57,15 @@ OP_Node* SOP_julia::make_me(OP_Network *net, const char *name, OP_Operator *op){
     return new SOP_julia(net, name, op);
 }
 
+void signal_ignorer(UTsignalHandlerArg){
+    debug()<<"SIGSEGV LE CAUGHT !!"<<std::endl;
+};
+
+
 size_t SOP_julia::instance_count=0;
 bool SOP_julia::jl_initialized=false;
 
 SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Node(net, name, op){
-    if(!jl_initialized){
-        printf("2HELLO, I AM %d\n", pthread_self());
-        jl_init();
-        jl_eval_string("println(Threads.nthreads())");
-        jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
-        UT_Exit::addExitCallback(SOP_julia::atExit);
-        jl_initialized=true;
-    }
     ++instance_count;    
 }
 
@@ -98,7 +96,17 @@ static std::map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
     };
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
+    if(!jl_initialized){
+        printf("2HELLO, I AM %d\n", pthread_self());
+        jl_init();
+        jl_eval_string("println(Threads.nthreads())");
+        jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
+        UT_Exit::addExitCallback(SOP_julia::atExit);
+        jl_initialized=true;
+    }
     printf("3HELLO, I AM %d\n", pthread_self());
+    //UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
+
     OP_AutoLockInputs inputlock(this);
     if(inputlock.lock(context) >= UT_ERROR_ABORT)
         return error();
