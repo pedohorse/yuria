@@ -97,21 +97,18 @@ static std::map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     if(!jl_initialized){
-        printf("2HELLO, I AM %d\n", pthread_self());
+        debug()<<"initializing julia in thread" << pthread_self() << std::endl;
         jl_init();
-        jl_eval_string("println(Threads.nthreads())");
-        jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
+        //jl_eval_string("println(Threads.nthreads())");
+        //jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
         UT_Exit::addExitCallback(SOP_julia::atExit);
         jl_initialized=true;
     }
-    printf("3HELLO, I AM %d\n", pthread_self());
     //UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
 
     OP_AutoLockInputs inputlock(this);
     if(inputlock.lock(context) >= UT_ERROR_ABORT)
         return error();
-
-    
 
     duplicateSource(0, context);
     UT_String initcode, code, rattribs_pattern, wattribs_pattern;
@@ -206,7 +203,7 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     getFullPath(nodeFuncName);
     nodeFuncName.substitute('/', '_');
     const bool updatingDefinitions = prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs;
-    const bool needNoGcRun = updatingDefinitions && ( code.findString("Threads.", false, false) || initcode.findString("Threads.", false, false));  // CHEATS !!!
+    const bool needNoGcRun = updatingDefinitions && ( code.findString("Threads.", false, false) || initcode.findString("Threads.", false, false));  // CHEATS !!! (NOT USED)
     if(updatingDefinitions){
         prevCode = code;
         prevInitCode = initcode;
