@@ -17,6 +17,20 @@ use `HOUDINI_DSO_ERROR=2` to catch so loading errors
 
 ye, it's not yet very streamlined
 
+#### using
+The plugin provides a SOP node haned `juliasnippet`, there you can put initialization code (usings, includes and declarations), and the code of a function to run every cook
+
+Attribute bindings happen bu name, according to attribute masks in node parameters  
+So if you map P - P will be available in function code (not initialization code) as a 3xN matrix  
+If you rebind it - you will loose connection to houdini. So instead - modify it inplace only
+DO NOT RESIZE BINDED ATTRIBUTES INPLACE - houdini will not catch that (yet)
+
+For not it's limited only to binding point attributes, that will be changed in the future
+
+If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
+**BUTT BEWARE** - in multithreaded mode the **problem** below will apply
+If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
+
 #### Problems:
 There is a problem of (as it seems) julia's GC sometimes conflicting with houdini, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
 
