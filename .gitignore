@@ -1,2 +1,5 @@
-/julia*
+/julia*/*
+/hfs/dso/julia/*
+!**/julia/put_julia_release_contents_here
 **/.vscode
+backup
