@@ -17,6 +17,11 @@ use `HOUDINI_DSO_ERROR=2` to catch so loading errors
 
 ye, it's not yet very streamlined
 
+##### other OSes
+not yet.
+
+due to some os-specific things in julia it might not be as simple as just recompiling it. MacOS has higher chance to not require any modifications, while windows handles signals completely different.
+
 #### using
 The plugin provides a SOP node haned `juliasnippet`, there you can put initialization code (usings, includes and declarations), and the code of a function to run every cook
 
@@ -27,7 +32,7 @@ DO NOT RESIZE BINDED ATTRIBUTES INPLACE - houdini will not catch that (yet)
 
 For not it's limited only to binding point attributes, that will be changed in the future
 
-If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
+If you want julia to run **multithreaded** - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
 **BUTT BEWARE** - in multithreaded mode the **problem** below will apply.  
 If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
 
