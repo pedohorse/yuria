@@ -28,7 +28,7 @@ DO NOT RESIZE BINDED ATTRIBUTES INPLACE - houdini will not catch that (yet)
 For not it's limited only to binding point attributes, that will be changed in the future
 
 If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
-**BUTT BEWARE** - in multithreaded mode the **problem** below will apply
+**BUTT BEWARE** - in multithreaded mode the **problem** below will apply.  
 If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
 
 #### Problems:
