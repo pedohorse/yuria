@@ -279,7 +279,7 @@ void SOP_julia::julia_dedicated_thread_func(){
 
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
-    UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
+    //UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
     //UT_Signal sigsegv_lock(SIGSEGV, SIG_DFL, true);
     //UT_Signal::disableCantReturn(true);
     if(!jl_initialized){
