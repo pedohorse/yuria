@@ -34,3 +34,4 @@ If that variable is not provided - julia will start in single-threaded mode, you
 #### Problems:
 There is a problem of (as it seems) julia's GC sometimes conflicting with houdini, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
 
+[why yuria?](https://youtu.be/frlyZzYG1So?t=35)
