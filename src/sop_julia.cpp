@@ -58,9 +58,9 @@ OP_Node* SOP_julia::make_me(OP_Network *net, const char *name, OP_Operator *op){
     return new SOP_julia(net, name, op);
 }
 
-// void signal_ignorer(UTsignalHandlerArg){
-//     debug()<<"SIGSEGV LE CAUGHT !!"<<endl;
-// };
+void signal_ignorer(UTsignalHandlerArg){
+    debug()<<"SIGSEGV LE CAUGHT !!"<<endl;
+};
 
 size_t SOP_julia::instance_count = 0;
 bool SOP_julia::jl_initialized = false;
@@ -133,6 +133,7 @@ typedef struct julia_thread_input_data_t{
     condition_variable notifier;
 } julia_thread_input_data_t;
 
+static struct sigaction julia_sigsegv_action;
 
 int SOP_julia::julia_inner_function(){
     // assume all is locked properly
@@ -140,10 +141,12 @@ int SOP_julia::julia_inner_function(){
      if(!jl_initialized){
         debug()<<"initializing julia in thread " << this_thread::get_id() << endl;
         jl_init();
+        sigaction(SIGSEGV, NULL, &julia_sigsegv_action);
         //jl_eval_string("println(Threads.nthreads())");
         //jl_eval_string("x=[1]; @time Threads.@threads for i in 1:100 global x=hcat(x,size(rand(10000,1000))); end");
         jl_initialized=true;
     }
+    sigaction(SIGSEGV, &julia_sigsegv_action, NULL);
 
     if(julia_thread_input_data->updating_definitions){
         UT_String signature;
@@ -276,7 +279,9 @@ void SOP_julia::julia_dedicated_thread_func(){
 
 
 OP_ERROR SOP_julia::cookMySop(OP_Context &context){
-    //UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
+    UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
+    //UT_Signal sigsegv_lock(SIGSEGV, SIG_DFL, true);
+    //UT_Signal::disableCantReturn(true);
     if(!jl_initialized){
         time_to_stop_julia_thread = false;
         UT_Exit::addExitCallback(SOP_julia::atExit);
