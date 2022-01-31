@@ -32,6 +32,6 @@ If you want julia to run multithreaded - provide environment variable to houdini
 If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
 
 #### Problems:
-There is a problem of (as it seems) julia's GC sometimes conflicting with houdini, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
+~~There is a problem of (as it seems) julia's GC sometimes conflicting with houdini~~ the problem seem to be mitigated, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
 
 [why yuria?](https://youtu.be/frlyZzYG1So?t=35)
