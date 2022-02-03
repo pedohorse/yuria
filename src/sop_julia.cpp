@@ -1,6 +1,6 @@
 #include <julia.h>
 
-#include "sop_juila.h"
+#include "sop_julia.h"
 
 #include <iostream>
 #include <OP/OP_Operator.h>
