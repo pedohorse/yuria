@@ -25,7 +25,8 @@ So if you map P - P will be available in function code (not initialization code)
 If you rebind it - you will loose connection to houdini. So instead - modify it inplace only
 DO NOT RESIZE BINDED ATTRIBUTES INPLACE - houdini will not catch that (yet)
 
-For not it's limited only to binding point attributes, that will be changed in the future
+Vertex, Point, Primitive, Detail attributes - all are considered for binding (and in that order)  
+You should not have different class attributes with same names, only first one (in order above) will be binded in that case.
 
 If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
 **BUTT BEWARE** - in multithreaded mode the **problem** below will apply.  
