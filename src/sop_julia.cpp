@@ -20,11 +20,30 @@
 
 using namespace std;
 
-static ostream& debug(){
-    return cout;
+class NullBuffer : public streambuf
+{
+public:
+  int overflow(int c) { return c; }
+};
+class NullStream : public ostream {
+public:
+    NullStream() : ostream(&m_sb) {};
+private:
+    NullBuffer m_sb;
+};
+static NullStream null_stream;
+
+static ostream *debug_stream = &null_stream;
+static ostream &debug(){
+    return *debug_stream;
 }
 
 void newSopOperator(OP_OperatorTable *table){
+    const char *debug_env = getenv("YURIA_DEBUG");
+    if(debug_env != NULL){
+        debug_stream = &cout;
+    }
+
     table->addOperator(new OP_Operator(
         "juliasnippet",
         "Julia Snippet",
