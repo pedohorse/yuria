@@ -5,7 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 
-typedef struct julia_thread_input_data_t julia_thread_input_data_t;  // fwd
+typedef struct JuliaThreadInputData JuliaThreadInputData;  // fwd
 
 class SOP_julia: public SOP_Node{
 public:
@@ -18,16 +18,16 @@ public:
 protected:
     OP_ERROR cookMySop(OP_Context &context) override;
 private:
-    UT_String prevCode, prevInitCode, prevFuncName;
-    std::string prevAttrs;
-    std::map<UT_String,std::vector<double>> cachedBuffersf64;
-    std::map<UT_String,std::vector<int64>> cachedBuffersi64;
+    UT_String prev_code, prev_init_code, prev_func_name;
+    std::string prev_attrs;
+    std::map<UT_String,std::vector<double>> cached_buffers_f64;
+    std::map<UT_String,std::vector<int64>> cached_buffers_i64;
 
     static size_t instance_count;
     static bool jl_initialized;
     
     static void atExit(void*);
-    static julia_thread_input_data_t *julia_thread_input_data;
+    static JuliaThreadInputData *julia_thread_input_data;
     static void julia_dedicated_thread_func();
     static int julia_inner_function();
     static std::mutex jt_input_ready_mutex;

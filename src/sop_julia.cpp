@@ -84,7 +84,7 @@ void signal_ignorer(UTsignalHandlerArg){
 size_t SOP_julia::instance_count = 0;
 bool SOP_julia::jl_initialized = false;
 unique_ptr<thread> SOP_julia::julia_thread = nullptr;
-julia_thread_input_data_t *SOP_julia::julia_thread_input_data = NULL;
+JuliaThreadInputData *SOP_julia::julia_thread_input_data = NULL;
 bool SOP_julia::time_to_stop_julia_thread = false;
 std::mutex SOP_julia::jt_input_ready_mutex;
 std::condition_variable SOP_julia::jt_input_ready;
@@ -137,10 +137,10 @@ enum JULIA_THREAD_PROCESSING_PROBLEMS{
     JULIA_THREAD_PROCESSING_SIMPLE_ERROR
 };
 
-typedef struct julia_thread_input_data_t{
+typedef struct JuliaThreadInputData{
     const bool updating_definitions;
-    const UT_String &nodeFuncName, &initcode, &code;
-    const string &codeFuncAttrs, &compileTypes;
+    const UT_String &node_func_name, &initcode, &code;
+    const string &code_func_attrs, &compile_types;
     vector<entryAIFtuple> &r_bind_entries3f;
     const bool do_time;
     const double time=0.0;
@@ -151,7 +151,7 @@ typedef struct julia_thread_input_data_t{
 
     mutex datamod_mutex;
     condition_variable notifier;
-} julia_thread_input_data_t;
+} JuliaThreadInputData;
 
 static struct sigaction julia_sigsegv_action;
 
@@ -171,9 +171,9 @@ int SOP_julia::julia_inner_function(){
     if(julia_thread_input_data->updating_definitions){
         UT_String signature;
         UT_String final_code = julia_thread_input_data->code;
-        signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", julia_thread_input_data->nodeFuncName.c_str(),
+        signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", julia_thread_input_data->node_func_name.c_str(),
                                                                             julia_thread_input_data->initcode.c_str(),
-                                                                            julia_thread_input_data->codeFuncAttrs.c_str());
+                                                                            julia_thread_input_data->code_func_attrs.c_str());
         final_code.prepend(signature);
         final_code.append("\nend\nend");
         debug()<<"applying new julia module"<<endl<<final_code<<endl;
@@ -192,7 +192,7 @@ int SOP_julia::julia_inner_function(){
         }
 
         UT_String precomp;
-        precomp.sprintf("precompile(%s._hou_do_my_stuff, (%s))", julia_thread_input_data->nodeFuncName.c_str(), julia_thread_input_data->compileTypes.c_str());
+        precomp.sprintf("precompile(%s._hou_do_my_stuff, (%s))", julia_thread_input_data->node_func_name.c_str(), julia_thread_input_data->compile_types.c_str());
         debug()<<"precompiling "<<precomp<<endl;
         ret = jl_eval_string(precomp.c_str());
         if(ret!=NULL) debug()<<jl_unbox_bool(ret)<<endl;
@@ -247,7 +247,7 @@ int SOP_julia::julia_inner_function(){
     }
 
 
-    jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(julia_thread_input_data->nodeFuncName.c_str())), "_hou_do_my_stuff");
+    jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(julia_thread_input_data->node_func_name.c_str())), "_hou_do_my_stuff");
     if(jfunc==NULL){
         julia_thread_input_data->error_text = "couldn't get da function";
         return 1;
@@ -323,9 +323,9 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     GA_AttributeFilter rattribs_filter(GA_AttributeFilter::selectByPattern(rattribs_pattern));
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
-    string codeFuncAttrs, compileTypes;
-    codeFuncAttrs.reserve(256); //   cuz lazy
-    compileTypes.reserve(256);  //        why not  TODO: no point recreating every cook - keep in class instance
+    string code_func_attrs, compile_types;
+    code_func_attrs.reserve(256); //   cuz lazy
+    compile_types.reserve(256);  //        why not  TODO: no point recreating every cook - keep in class instance
     vector<entryAIFtuple> r_bind_entries3f, w_bind_entries3f;
     {
         set<uint32> already_used;
@@ -357,23 +357,23 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                 already_used.insert(attr_name_hash);
 
                 if(attr->getAIFTuple()){
-                    if(attrClass==GA_StorageClass::GA_STORECLASS_FLOAT && cachedBuffersf64.find(attr_name)==cachedBuffersf64.end())
-                        cachedBuffersf64[attr_name] = vector<double>();
-                    else if(attrClass==GA_StorageClass::GA_STORECLASS_INT && cachedBuffersi64.find(attr_name)==cachedBuffersi64.end())
-                        cachedBuffersi64[attr_name] = vector<int64>();
+                    if(attrClass==GA_StorageClass::GA_STORECLASS_FLOAT && cached_buffers_f64.find(attr_name)==cached_buffers_f64.end())
+                        cached_buffers_f64[attr_name] = vector<double>();
+                    else if(attrClass==GA_StorageClass::GA_STORECLASS_INT && cached_buffers_i64.find(attr_name)==cached_buffers_i64.end())
+                        cached_buffers_i64[attr_name] = vector<int64>();
 
-                    if(codeFuncAttrs.length()>0){
-                        codeFuncAttrs += ", ";
-                        compileTypes += ", ";
+                    if(code_func_attrs.length()>0){
+                        code_func_attrs += ", ";
+                        compile_types += ", ";
                     }
-                    codeFuncAttrs += attr_name;
-                    codeFuncAttrs += "::";
-                    codeFuncAttrs += h2jFloatTypeMapping[attrClass];
-                    compileTypes += h2jFloatTypeMapping[attrClass];
+                    code_func_attrs += attr_name;
+                    code_func_attrs += "::";
+                    code_func_attrs += h2jFloatTypeMapping[attrClass];
+                    compile_types += h2jFloatTypeMapping[attrClass];
 
                     r_bind_entries3f.push_back({attrClass,
-                                                attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cachedBuffersf64[attr_name]:NULL,
-                                                attrClass==GA_StorageClass::GA_STORECLASS_INT?&cachedBuffersi64[attr_name]:NULL,
+                                                attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cached_buffers_f64[attr_name]:NULL,
+                                                attrClass==GA_StorageClass::GA_STORECLASS_INT?&cached_buffers_i64[attr_name]:NULL,
                                                 attr,
                                                 attr->getTupleSize(),
                                                 owner_iter.second,
@@ -381,8 +381,8 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
                                                 });
                     if(wattribs_filter.match(attr))
                         w_bind_entries3f.push_back({attrClass,
-                                                    attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cachedBuffersf64[attr_name]:NULL,
-                                                    attrClass==GA_StorageClass::GA_STORECLASS_INT?&cachedBuffersi64[attr_name]:NULL,
+                                                    attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cached_buffers_f64[attr_name]:NULL,
+                                                    attrClass==GA_StorageClass::GA_STORECLASS_INT?&cached_buffers_i64[attr_name]:NULL,
                                                     attr,
                                                     attr->getTupleSize(),
                                                     owner_iter.second,
@@ -393,13 +393,13 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
             }
         }
     }
-    if(codeFuncAttrs.length() == 0){
+    if(code_func_attrs.length() == 0){
         addWarning(SOP_MESSAGE, "no attributes binded, code not executed");
         return error();
     }
     if(dotime){
-        codeFuncAttrs += ", Time::Float64";
-        compileTypes += ", Float64";
+        code_func_attrs += ", Time::Float64";
+        compile_types += ", Float64";
         flags().setTimeDep(true);
     }
 
@@ -423,28 +423,28 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     }
 
     // init julia function
-    UT_String nodeFuncName;
-    getFullPath(nodeFuncName);
-    nodeFuncName.substitute('/', '_');
-    const bool updatingDefinitions = prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs;
+    UT_String node_func_name;
+    getFullPath(node_func_name);
+    node_func_name.substitute('/', '_');
+    const bool updatingDefinitions = prev_code!=code || prev_init_code!=initcode || prev_func_name!=node_func_name || code_func_attrs!=prev_attrs;
     if(updatingDefinitions){
-        prevCode = code;
-        prevInitCode = initcode;
-        prevFuncName = nodeFuncName;
-        prevAttrs = codeFuncAttrs;
-        prevCode.hardenIfNeeded();
-        prevInitCode.hardenIfNeeded();
-        prevFuncName.hardenIfNeeded();
+        prev_code = code;
+        prev_init_code = initcode;
+        prev_func_name = node_func_name;
+        prev_attrs = code_func_attrs;
+        prev_code.hardenIfNeeded();
+        prev_init_code.hardenIfNeeded();
+        prev_func_name.hardenIfNeeded();
     }
     
     ///////////////////////////////////////////////////////////////
     
-    julia_thread_input_data_t my_jdata{.updating_definitions = updatingDefinitions,
-                                    .nodeFuncName = nodeFuncName,
+    JuliaThreadInputData my_jdata{.updating_definitions = updatingDefinitions,
+                                    .node_func_name = node_func_name,
                                     .initcode = initcode,
                                     .code = code,
-                                    .codeFuncAttrs = codeFuncAttrs,
-                                    .compileTypes = compileTypes,
+                                    .code_func_attrs = code_func_attrs,
+                                    .compile_types = compile_types,
                                     .r_bind_entries3f = r_bind_entries3f,
                                     .do_time = dotime,
                                     .time = context.getTime()
