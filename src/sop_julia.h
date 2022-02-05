@@ -3,6 +3,7 @@
 
 #include <SOP/SOP_Node.h>
 #include <mutex>
+#include <thread>
 #include <condition_variable>
 
 typedef struct JuliaThreadInputData JuliaThreadInputData;  // fwd
