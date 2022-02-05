@@ -49,6 +49,7 @@
 				"-Wunused",
 				"-Wno-unused-parameter",
 				"-Wno-unused-local-typedefs",
+				"-Wno-missing-field-initializers",
 				"-O3",
 				"-fno-strict-aliasing",
 
