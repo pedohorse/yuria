@@ -96,7 +96,6 @@ SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Nod
 
 SOP_julia::~SOP_julia(){
     --instance_count;
-    debug()<<"shark"<<endl;
     // TODO: delete created functions from main module maybe? is it even possible?
 }
 
