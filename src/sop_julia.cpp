@@ -1,6 +1,6 @@
 #include <julia.h>
 
-#include "sop_juila.h"
+#include "sop_julia.h"
 
 #include <iostream>
 #include <OP/OP_Operator.h>
@@ -20,11 +20,30 @@
 
 using namespace std;
 
-static ostream& debug(){
-    return cout;
+class NullBuffer : public streambuf
+{
+public:
+  int overflow(int c) { return c; }
+};
+class NullStream : public ostream {
+public:
+    NullStream() : ostream(&m_sb) {};
+private:
+    NullBuffer m_sb;
+};
+static NullStream null_stream;
+
+static ostream *debug_stream = &null_stream;
+static ostream &debug(){
+    return *debug_stream;
 }
 
 void newSopOperator(OP_OperatorTable *table){
+    const char *debug_env = getenv("YURIA_DEBUG");
+    if(debug_env != NULL){
+        debug_stream = &cout;
+    }
+
     table->addOperator(new OP_Operator(
         "juliasnippet",
         "Julia Snippet",
@@ -65,7 +84,7 @@ void signal_ignorer(UTsignalHandlerArg){
 size_t SOP_julia::instance_count = 0;
 bool SOP_julia::jl_initialized = false;
 unique_ptr<thread> SOP_julia::julia_thread = nullptr;
-julia_thread_input_data_t *SOP_julia::julia_thread_input_data = NULL;
+JuliaThreadInputData *SOP_julia::julia_thread_input_data = NULL;
 bool SOP_julia::time_to_stop_julia_thread = false;
 std::mutex SOP_julia::jt_input_ready_mutex;
 std::condition_variable SOP_julia::jt_input_ready;
@@ -77,7 +96,6 @@ SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Nod
 
 SOP_julia::~SOP_julia(){
     --instance_count;
-    debug()<<"shark"<<endl;
     // TODO: delete created functions from main module maybe? is it even possible?
 }
 
@@ -103,6 +121,8 @@ typedef struct _entryAIFtuple{
     vector<int64>* buffer_i64;
     GA_Attribute* attr;
     int tuple_size;
+    GA_Size buffer_elem_count;
+    GA_Range buffer_range;
 } entryAIFtuple;
 
 static map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
@@ -116,12 +136,11 @@ enum JULIA_THREAD_PROCESSING_PROBLEMS{
     JULIA_THREAD_PROCESSING_SIMPLE_ERROR
 };
 
-typedef struct julia_thread_input_data_t{
+typedef struct JuliaThreadInputData{
     const bool updating_definitions;
-    const UT_String &nodeFuncName, &initcode, &code;
-    const string &codeFuncAttrs, &compileTypes;
+    const UT_String &node_func_name, &initcode, &code;
+    const string &code_func_attrs, &compile_types;
     vector<entryAIFtuple> &r_bind_entries3f;
-    const exint num_elements;
     const bool do_time;
     const double time=0.0;
 
@@ -131,7 +150,7 @@ typedef struct julia_thread_input_data_t{
 
     mutex datamod_mutex;
     condition_variable notifier;
-} julia_thread_input_data_t;
+} JuliaThreadInputData;
 
 static struct sigaction julia_sigsegv_action;
 
@@ -151,9 +170,9 @@ int SOP_julia::julia_inner_function(){
     if(julia_thread_input_data->updating_definitions){
         UT_String signature;
         UT_String final_code = julia_thread_input_data->code;
-        signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", julia_thread_input_data->nodeFuncName.c_str(),
+        signature.sprintf("module %s\n%s\nfunction _hou_do_my_stuff(%s)\n", julia_thread_input_data->node_func_name.c_str(),
                                                                             julia_thread_input_data->initcode.c_str(),
-                                                                            julia_thread_input_data->codeFuncAttrs.c_str());
+                                                                            julia_thread_input_data->code_func_attrs.c_str());
         final_code.prepend(signature);
         final_code.append("\nend\nend");
         debug()<<"applying new julia module"<<endl<<final_code<<endl;
@@ -172,7 +191,7 @@ int SOP_julia::julia_inner_function(){
         }
 
         UT_String precomp;
-        precomp.sprintf("precompile(%s._hou_do_my_stuff, (%s))", julia_thread_input_data->nodeFuncName.c_str(), julia_thread_input_data->compileTypes.c_str());
+        precomp.sprintf("precompile(%s._hou_do_my_stuff, (%s))", julia_thread_input_data->node_func_name.c_str(), julia_thread_input_data->compile_types.c_str());
         debug()<<"precompiling "<<precomp<<endl;
         ret = jl_eval_string(precomp.c_str());
         if(ret!=NULL) debug()<<jl_unbox_bool(ret)<<endl;
@@ -201,7 +220,7 @@ int SOP_julia::julia_inner_function(){
     for(entryAIFtuple& entry: julia_thread_input_data->r_bind_entries3f){
         jl_value_t* v2size = jl_new_struct_uninit(t2t);
         gc_allvals[gc_allvals_counter++] = v2size;
-        ((ssize_t*)v2size)[1] = julia_thread_input_data->num_elements;
+        ((ssize_t*)v2size)[1] = entry.buffer_elem_count;
         ((ssize_t*)v2size)[0] = entry.tuple_size;
         jl_value_t* val;
         switch(entry.type){
@@ -227,7 +246,7 @@ int SOP_julia::julia_inner_function(){
     }
 
 
-    jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(julia_thread_input_data->nodeFuncName.c_str())), "_hou_do_my_stuff");
+    jl_function_t *jfunc = jl_get_function((jl_module_t*)jl_get_global(jl_main_module, jl_symbol(julia_thread_input_data->node_func_name.c_str())), "_hou_do_my_stuff");
     if(jfunc==NULL){
         julia_thread_input_data->error_text = "couldn't get da function";
         return 1;
@@ -303,61 +322,83 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     GA_AttributeFilter rattribs_filter(GA_AttributeFilter::selectByPattern(rattribs_pattern));
     GA_AttributeFilter wattribs_filter(GA_AttributeFilter::selectByPattern(wattribs_pattern));
 
-    string codeFuncAttrs, compileTypes;
-    codeFuncAttrs.reserve(256); //   cuz lazy
-    compileTypes.reserve(256);  //        why not  TODO: no point recreating every cook - keep in class instance
+    string code_func_attrs, compile_types;
+    code_func_attrs.reserve(256); //   cuz lazy
+    compile_types.reserve(256);  //        why not  TODO: no point recreating every cook - keep in class instance
     vector<entryAIFtuple> r_bind_entries3f, w_bind_entries3f;
-    for(GA_AttributeDict::iterator it=gdp->getAttributeDict(GA_ATTRIB_POINT).begin(GA_SCOPE_PUBLIC);
-                                   !it.atEnd();
-                                   ++it){
-        if(!rattribs_filter.match(it.attrib()))continue;
-        GA_Attribute *attr = it.attrib();
-        // for now only float based attribs
-        const GA_StorageClass attrClass = attr->getStorageClass();
-        if(attrClass!=GA_StorageClass::GA_STORECLASS_FLOAT &&
-           attrClass!=GA_StorageClass::GA_STORECLASS_INT)continue;
+    {
+        set<uint32> already_used;
+        const map<GA_AttributeOwner, GA_Size> owner_to_size = {{GA_ATTRIB_VERTEX, gdp->getNumVertices()}, 
+                                                               {GA_ATTRIB_POINT, gdp->getNumPoints()},
+                                                               {GA_ATTRIB_PRIMITIVE, gdp->getNumPrimitives()},
+                                                               {GA_ATTRIB_DETAIL, 1}};
+        const map<GA_AttributeOwner, GA_Range> owner_to_range = {{GA_ATTRIB_VERTEX, gdp->getVertexRange()}, 
+                                                                 {GA_ATTRIB_POINT, gdp->getPointRange()},
+                                                                 {GA_ATTRIB_PRIMITIVE, gdp->getPrimitiveRange()},
+                                                                 {GA_ATTRIB_DETAIL, gdp->getGlobalRange()}};                                                       
+        for(const auto &owner_iter: owner_to_size){
+            for(GA_AttributeDict::iterator it=gdp->getAttributeDict(owner_iter.first).begin(GA_SCOPE_PUBLIC);
+                                        !it.atEnd();
+                                        ++it){
+                if(!rattribs_filter.match(it.attrib()))continue;
 
-        //if(attr->getTupleSize()==3){  // vector3 and shit
-        if(attr->getAIFTuple()){
-            const UT_String attr_name = UT_String(attr->getName());
-            if(attrClass==GA_StorageClass::GA_STORECLASS_FLOAT && cachedBuffersf64.find(attr_name)==cachedBuffersf64.end())
-                cachedBuffersf64[attr_name] = vector<double>();
-            else if(attrClass==GA_StorageClass::GA_STORECLASS_INT && cachedBuffersi64.find(attr_name)==cachedBuffersi64.end())
-                cachedBuffersi64[attr_name] = vector<int64>();
+                GA_Attribute *attr = it.attrib();
 
-            //cachedBuffers[attr_name].resize(gdp->getNumPoints()*3);  // ensure size
-            if(codeFuncAttrs.length()>0){
-                codeFuncAttrs += ", ";
-                compileTypes += ", ";
+                // for now only float based attribs
+                const GA_StorageClass attrClass = attr->getStorageClass();
+                if(attrClass!=GA_StorageClass::GA_STORECLASS_FLOAT &&
+                   attrClass!=GA_StorageClass::GA_STORECLASS_INT)continue;
+
+                const UT_String attr_name = UT_String(attr->getName());
+                uint32 attr_name_hash = attr_name.hash();
+                if(already_used.find(attr_name_hash) != already_used.end())
+                    continue;
+                already_used.insert(attr_name_hash);
+
+                if(attr->getAIFTuple()){
+                    if(attrClass==GA_StorageClass::GA_STORECLASS_FLOAT && cached_buffers_f64.find(attr_name)==cached_buffers_f64.end())
+                        cached_buffers_f64[attr_name] = vector<double>();
+                    else if(attrClass==GA_StorageClass::GA_STORECLASS_INT && cached_buffers_i64.find(attr_name)==cached_buffers_i64.end())
+                        cached_buffers_i64[attr_name] = vector<int64>();
+
+                    if(code_func_attrs.length()>0){
+                        code_func_attrs += ", ";
+                        compile_types += ", ";
+                    }
+                    code_func_attrs += attr_name;
+                    code_func_attrs += "::";
+                    code_func_attrs += h2jFloatTypeMapping[attrClass];
+                    compile_types += h2jFloatTypeMapping[attrClass];
+
+                    r_bind_entries3f.push_back({attrClass,
+                                                attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cached_buffers_f64[attr_name]:NULL,
+                                                attrClass==GA_StorageClass::GA_STORECLASS_INT?&cached_buffers_i64[attr_name]:NULL,
+                                                attr,
+                                                attr->getTupleSize(),
+                                                owner_iter.second,
+                                                owner_to_range.at(owner_iter.first)
+                                                });
+                    if(wattribs_filter.match(attr))
+                        w_bind_entries3f.push_back({attrClass,
+                                                    attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cached_buffers_f64[attr_name]:NULL,
+                                                    attrClass==GA_StorageClass::GA_STORECLASS_INT?&cached_buffers_i64[attr_name]:NULL,
+                                                    attr,
+                                                    attr->getTupleSize(),
+                                                    owner_iter.second,
+                                                    owner_to_range.at(owner_iter.first)
+                                                    });
+                    
+                }
             }
-            codeFuncAttrs += attr_name;
-            codeFuncAttrs += "::";
-            codeFuncAttrs += h2jFloatTypeMapping[attrClass];
-            compileTypes += h2jFloatTypeMapping[attrClass];
-
-            r_bind_entries3f.push_back({attrClass,
-                                        attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cachedBuffersf64[attr_name]:NULL,
-                                        attrClass==GA_StorageClass::GA_STORECLASS_INT?&cachedBuffersi64[attr_name]:NULL,
-                                        attr,
-                                        attr->getTupleSize()
-                                        });
-            if(wattribs_filter.match(attr))
-                w_bind_entries3f.push_back({attrClass,
-                                            attrClass==GA_StorageClass::GA_STORECLASS_FLOAT?&cachedBuffersf64[attr_name]:NULL,
-                                            attrClass==GA_StorageClass::GA_STORECLASS_INT?&cachedBuffersi64[attr_name]:NULL,
-                                            attr,
-                                            attr->getTupleSize()
-                                            });
-            
         }
     }
-    if(codeFuncAttrs.length() == 0){
+    if(code_func_attrs.length() == 0){
         addWarning(SOP_MESSAGE, "no attributes binded, code not executed");
         return error();
     }
     if(dotime){
-        codeFuncAttrs += ", Time::Float64";
-        compileTypes += ", Float64";
+        code_func_attrs += ", Time::Float64";
+        compile_types += ", Float64";
         flags().setTimeDep(true);
     }
 
@@ -369,10 +410,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     for(entryAIFtuple& entry: r_bind_entries3f){
         switch(entry.type){
             case GA_StorageClass::GA_STORECLASS_FLOAT:
-                entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, gdp->getPointRange(), *entry.buffer_f64);
+                entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, entry.buffer_range, *entry.buffer_f64);
                 break;
             case GA_StorageClass::GA_STORECLASS_INT:
-                entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, gdp->getPointRange(), *entry.buffer_i64);
+                entry.attr->getAIFTuple()->getRangeInContainer(entry.attr, entry.buffer_range, *entry.buffer_i64);
                 break;
             default:
                 addError(SOP_MESSAGE, "internal type binding error!");
@@ -381,30 +422,29 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     }
 
     // init julia function
-    UT_String nodeFuncName;
-    getFullPath(nodeFuncName);
-    nodeFuncName.substitute('/', '_');
-    const bool updatingDefinitions = prevCode!=code || prevInitCode!=initcode || prevFuncName!=nodeFuncName || codeFuncAttrs!=prevAttrs;
+    UT_String node_func_name;
+    getFullPath(node_func_name);
+    node_func_name.substitute('/', '_');
+    const bool updatingDefinitions = prev_code!=code || prev_init_code!=initcode || prev_func_name!=node_func_name || code_func_attrs!=prev_attrs;
     if(updatingDefinitions){
-        prevCode = code;
-        prevInitCode = initcode;
-        prevFuncName = nodeFuncName;
-        prevAttrs = codeFuncAttrs;
-        prevCode.hardenIfNeeded();
-        prevInitCode.hardenIfNeeded();
-        prevFuncName.hardenIfNeeded();
+        prev_code = code;
+        prev_init_code = initcode;
+        prev_func_name = node_func_name;
+        prev_attrs = code_func_attrs;
+        prev_code.hardenIfNeeded();
+        prev_init_code.hardenIfNeeded();
+        prev_func_name.hardenIfNeeded();
     }
     
     ///////////////////////////////////////////////////////////////
     
-    julia_thread_input_data_t my_jdata{.updating_definitions = updatingDefinitions,
-                                    .nodeFuncName = nodeFuncName,
+    JuliaThreadInputData my_jdata{.updating_definitions = updatingDefinitions,
+                                    .node_func_name = node_func_name,
                                     .initcode = initcode,
                                     .code = code,
-                                    .codeFuncAttrs = codeFuncAttrs,
-                                    .compileTypes = compileTypes,
+                                    .code_func_attrs = code_func_attrs,
+                                    .compile_types = compile_types,
                                     .r_bind_entries3f = r_bind_entries3f,
-                                    .num_elements = gdp->getNumPoints(),
                                     .do_time = dotime,
                                     .time = context.getTime()
                                     };
@@ -431,10 +471,10 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     for(entryAIFtuple& entry: w_bind_entries3f){  // TODO: check if buffer was not resized somehow!
         switch(entry.type){
             case GA_StorageClass::GA_STORECLASS_FLOAT:
-                entry.attr->getAIFTuple()->setRange(entry.attr, gdp->getPointRange(), entry.buffer_f64->data());
+                entry.attr->getAIFTuple()->setRange(entry.attr, entry.buffer_range, entry.buffer_f64->data());
                 break;
             case GA_StorageClass::GA_STORECLASS_INT:
-                entry.attr->getAIFTuple()->setRange(entry.attr, gdp->getPointRange(), entry.buffer_i64->data());
+                entry.attr->getAIFTuple()->setRange(entry.attr, entry.buffer_range, entry.buffer_i64->data());
                 break;
             default:
                 addError(SOP_MESSAGE, "internal type binding error!");
