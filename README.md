@@ -17,6 +17,11 @@ use `HOUDINI_DSO_ERROR=2` to catch so loading errors
 
 ye, it's not yet very streamlined
 
+##### other OSes
+not yet.
+
+due to some os-specific things in julia it might not be as simple as just recompiling it. MacOS has higher chance to not require any modifications, while windows handles signals completely different.
+
 #### Installing
 ##### to your user dir
 1. find appropriate `sop_julia.so` (or `dll` on windows (or whatever extention mac is using)) for appropriate houdini version. Build should not matter, only major.minor versions are important.
@@ -48,8 +53,9 @@ DO NOT RESIZE BINDED ATTRIBUTES INPLACE - houdini will not catch that (yet)
 Vertex, Point, Primitive, Detail attributes - all are considered for binding (and in that order)  
 You should not have different class attributes with same names, only first one (in order above) will be binded in that case.
 
-If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
+If you want julia to run **multithreaded** - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
 ~~**BUTT BEWARE** - in multithreaded mode the **problem** below may apply.~~  
+
 If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
 
 #### Environment variables:
