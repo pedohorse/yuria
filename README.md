@@ -8,7 +8,7 @@ Tested only on linux with h18.5, h19.0 and julia 1.7.1
 * download julia release [1.7.1](https://julialang.org/downloads/) (or try later ones) 
 * put it's contents into:
   * julia directory in the root of the repository - this is needed just for includes
-  * julia directory in `hfs/dso/julia` - compiled .so will be looking for julia library there
+  * julia directory in `hfs/<version>/dso/julia` - compiled .so will be looking for julia library there
 * adjust paths in tasks.json if you are using vscode
 
 should work. now you can add path to `hfs` directory to your `HOUDINI_PATH` (or move it somewhere already in `HOUDINI_PATH`), and houdini will load it
@@ -16,6 +16,26 @@ should work. now you can add path to `hfs` directory to your `HOUDINI_PATH` (or 
 use `HOUDINI_DSO_ERROR=2` to catch so loading errors
 
 ye, it's not yet very streamlined
+
+#### Installing
+##### to your user dir
+1. find appropriate `sop_julia.so` (or `dll` on windows (or whatever extention mac is using)) for appropriate houdini version. Build should not matter, only major.minor versions are important.
+2. copy it to your houdini userdir's dso folder, like `houdini19.0/dso`
+3. unpack julia release [1.7.1](https://julialang.org/downloads/) (or the version you built .so with) to `julia` folder in the same place  
+your file structure should look like this:  
+```
+houdini19.0
+      |\dso
+         |\sop_julia.so
+         |\julia
+             |\bin
+             |\lib
+             |\share
+             ....
+```
+##### anywhere else
+You can put in anywhere DSOs are scanned for in your setup,  
+Just make sure that wherever you put the `sop_julia.so` - the `julia` release dir (see above) is right next to it.
 
 #### using
 The plugin provides a SOP node haned `juliasnippet`, there you can put initialization code (usings, includes and declarations), and the code of a function to run every cook
