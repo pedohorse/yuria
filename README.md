@@ -49,7 +49,7 @@ Vertex, Point, Primitive, Detail attributes - all are considered for binding (an
 You should not have different class attributes with same names, only first one (in order above) will be binded in that case.
 
 If you want julia to run multithreaded - provide environment variable to houdini `JULIA_NUM_THREADS=auto` (or any specific value instead of auto)  
-**BUTT BEWARE** - in multithreaded mode the **problem** below will apply.  
+~~**BUTT BEWARE** - in multithreaded mode the **problem** below may apply.~~  
 If that variable is not provided - julia will start in single-threaded mode, you can check number of threads with `Threads.nthreads()`
 
 #### Environment variables:
