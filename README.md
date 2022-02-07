@@ -67,6 +67,12 @@ all plugin-specific veriables start with `YURIA_`
 
 * `YURIA_DEBUG` - if set all debug output about plugin's work will be printed to stdout.
 
+#### installing Julia packages
+For now there is no embedded into houdini julia console.  
+So you will need to start julia shell of the same version you use for houdini (also the same JULIA_PROJECT if set, and other config environment variables)
+
+install all the packages you need the standard way through julia's interactive shell. After that you will be able to import them into houdini snippets.
+
 #### Known Problems:
 ~~There is a problem of (as it seems) julia's GC sometimes conflicting with houdini~~ the problem seem to be mitigated, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
 
