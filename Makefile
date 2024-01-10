@@ -14,7 +14,7 @@ LIBS = -ljulia
 include $(HFS)/toolkit/makefiles/Makefile.gnu
 
 #INSTDIR = hfs/$(subst hfs,,$(notdir $(HFS)))
-INSTDIR = hfs/$(shell echo $(notdir $(HFS)) | sed -E 's/[a-zA-Z]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+INSTDIR = hfs/$(shell (cd $(HFS) && source $(HFS)/houdini_setup_bash && eval "echo \$$HOUDINI_VERSION") | tail -n1)
 
 # now correc
 CXXFLAGS := $(CXXFLAGS) -Wno-missing-field-initializers
@@ -22,3 +22,6 @@ DSOFLAGS := $(DSOFLAGS) -Wl,-rpath,'$$ORIGIN/julia/lib/'
 
 cleandso::
 	rm $(DSONAME)
+
+install::
+	@echo "installing into $(INSTDIR)"
