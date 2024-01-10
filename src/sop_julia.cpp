@@ -97,9 +97,17 @@ SOP_julia::SOP_julia(OP_Network *net, const char *name, OP_Operator *op):SOP_Nod
 SOP_julia::~SOP_julia(){
     --instance_count;
     // TODO: delete created functions from main module maybe? is it even possible?
+    debug()<<"destructor "<<instance_count<<endl;
 }
 
+/// @brief julia thread finalizing and deinitialization
+/// Note that THIS IS NOT CALLED currently, due to the way houdini is exiting.
+/// @param  none
 void SOP_julia::atExit(void*){
+    debug()<<"atexit called"<<endl;
+    if(instance_count > 0) {
+        debug()<<"warning: instances still alive: "<<instance_count<<endl;
+    }
     if(julia_thread){
         unique_lock<mutex> access_lock(julia_access_mutex);
         debug()<<"stopping julia thread"<<endl;
@@ -129,7 +137,7 @@ static map<GA_StorageClass, const char*> h2jFloatTypeMapping = {
         {GA_StorageClass::GA_STORECLASS_FLOAT, "Array{Float64,2}"},
         {GA_StorageClass::GA_STORECLASS_INT, "Array{Int64,2}"}
     };
-
+static bool sop_static_initialized = false;
 
 enum JULIA_THREAD_PROCESSING_PROBLEMS{
     JULIA_THREAD_PROCESSING_ALLGOOD,
@@ -204,6 +212,7 @@ int SOP_julia::julia_inner_function(){
     const size_t gc_allvals_count = julia_thread_input_data->r_bind_entries3f.size()*2 + julia_thread_input_data->do_time + 4;
     size_t gc_allvals_counter = 0;
     JL_GC_PUSHARGS(gc_allvals, gc_allvals_count);
+    
     vector<jl_value_t*> jl_values;
     // reference from here: https://discourse.julialang.org/t/api-reference-for-julia-embedding-in-c/3963/3
     jl_value_t *array_type2d = jl_apply_array_type((jl_value_t*)jl_float64_type, 2);
@@ -213,7 +222,7 @@ int SOP_julia::julia_inner_function(){
     jl_value_t *t2types[] = {(jl_value_t*)jl_long_type, (jl_value_t*)jl_long_type};
     gc_allvals[gc_allvals_counter++] = t2types[0];
     gc_allvals[gc_allvals_counter++] = t2types[1];
-    jl_tupletype_t *t2t = jl_apply_tuple_type_v(t2types, 2);
+    jl_datatype_t *t2t = (jl_datatype_t*)jl_apply_tuple_type_v(t2types, 2);
 
     // vector3 attributes
     //((ssize_t*)v2size)[0] = 3;
@@ -292,6 +301,9 @@ void SOP_julia::julia_dedicated_thread_func(){
 
     if(jl_initialized){
         debug()<<"running julia exit hooks in thread "<<this_thread::get_id()<<endl;
+        // restore julia sigsegv action just in case
+        sigaction(SIGSEGV, &julia_sigsegv_action, NULL);
+
         jl_atexit_hook(0);
     }
 }
@@ -301,9 +313,18 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
     //UT_Signal sigsegv_lock(SIGSEGV, &signal_ignorer, true);
     //UT_Signal sigsegv_lock(SIGSEGV, SIG_DFL, true);
     //UT_Signal::disableCantReturn(true);
-    if(!jl_initialized){
+    if(!sop_static_initialized){
+        sop_static_initialized = true;
         time_to_stop_julia_thread = false;
-        UT_Exit::addExitCallback(SOP_julia::atExit);
+
+        // the exit callback below is commented for a reason
+        // though logically it should be called in case of a normal shutdown,
+        // however, houdini seem to not perform normal shutdown, probably for performance reasons
+        // destructors seem to not be called on shutdown, and during UT_Exit's exit callbacks
+        // it seeems that some memory is already freed...
+        // anyway, at least on linux it seems that just not calling julia's exit callbacks works quite fine.
+        //
+        // UT_Exit::addExitCallback(SOP_julia::atExit);
         julia_thread = make_unique<thread>(julia_dedicated_thread_func);
     }
 
