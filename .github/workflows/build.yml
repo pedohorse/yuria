@@ -1,0 +1,75 @@
+name: build
+
+on:
+  push:
+    tags: [ "v*" ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - hver: "20.0.547"
+            jver: "1.10.0"
+    runs-on: "ubuntu-latest"
+    container:
+      image: "ghcr.io/pedohorse/houdini_build_env:release-${{matrix.hver}}"
+    steps:
+      - name: "additional dependencies"
+        run: |
+          dnf install -y wget tar zip
+      - uses: actions/checkout@v4
+      - name: get julia
+        run: |
+          JVER_SHORT=${{matrix.jver}}
+          JVER_SHORT=${JVER_SHORT%.*}
+          cd julia
+          wget --quiet https://julialang-s3.julialang.org/bin/linux/x64/${JVER_SHORT}/julia-${{matrix.jver}}-linux-x86_64.tar.gz
+          tar -xvf julia-${{matrix.jver}}-linux-x86_64.tar.gz
+          mv julia-${{matrix.jver}}/* .
+          rm -r julia-${{matrix.jver}}
+          cd ..
+      - name: build
+        env:
+          HFS: /opt/houdini/build
+        run: |
+          make
+      - name: pack
+        run: |
+          mkdir dso
+          mv sop_julia.so dso/.
+          # julia is way too big, let's have mercy on github and not include it
+          mkdir dso/julia
+
+          cat <<EOF > dso/julia/put_julia_contents_here_bin_etc_lib_and_all_others.sh
+          #!/usr/bin/env bash
+          pushd $(dirname $0)
+          JVER=${{matrix.jver}}
+          JVER_SHORT=${JVER%.*}
+          wget https://julialang-s3.julialang.org/bin/linux/x64/${JVER_SHORT}/julia-${JVER}-linux-x86_64.tar.gz
+          tar -xvf julia-${JVER}-linux-x86_64.tar.gz
+          rm julia-${JVER}-linux-x86_64.tar.gz
+          mv julia-${JVER}/* .
+          rm -r julia-${JVER}
+          popd
+          EOF
+
+          zip -r "build-${{github.ref_name}}-h${{matrix.hver}}-j${{matrix.jver}}.zip" dso
+      - uses: actions/upload-artifact@v4
+        with:
+          path: build-${{github.ref_name}}-h${{matrix.hver}}-j${{matrix.jver}}.zip
+  
+  make_release:
+    needs: build
+    runs-on: "ubuntu-latest"
+    name: Make Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: |
+          ls -alR artifacts
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/*
