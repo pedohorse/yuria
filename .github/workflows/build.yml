@@ -43,20 +43,22 @@ jobs:
 
           cat <<EOF > dso/julia/put_julia_contents_here_bin_etc_lib_and_all_others.sh
           #!/usr/bin/env bash
-          pushd $(dirname $0)
+          pushd \$(dirname \$0)
           JVER=${{matrix.jver}}
-          JVER_SHORT=${JVER%.*}
-          wget https://julialang-s3.julialang.org/bin/linux/x64/${JVER_SHORT}/julia-${JVER}-linux-x86_64.tar.gz
-          tar -xvf julia-${JVER}-linux-x86_64.tar.gz
-          rm julia-${JVER}-linux-x86_64.tar.gz
-          mv julia-${JVER}/* .
-          rm -r julia-${JVER}
+          JVER_SHORT=\${JVER%.*}
+          wget https://julialang-s3.julialang.org/bin/linux/x64/\${JVER_SHORT}/julia-\${JVER}-linux-x86_64.tar.gz
+          tar -xvf julia-\${JVER}-linux-x86_64.tar.gz
+          rm julia-\${JVER}-linux-x86_64.tar.gz
+          mv julia-\${JVER}/* .
+          rm -r julia-\${JVER}
           popd
           EOF
-
+          
+          chmod +x dso/julia/put_julia_contents_here_bin_etc_lib_and_all_others.sh
           zip -r "build-${{github.ref_name}}-h${{matrix.hver}}-j${{matrix.jver}}.zip" dso
       - uses: actions/upload-artifact@v4
         with:
+          name: build-${{github.ref_name}}-h${{matrix.hver}}-j${{matrix.jver}}
           path: build-${{github.ref_name}}-h${{matrix.hver}}-j${{matrix.jver}}.zip
   
   make_release:
@@ -72,4 +74,4 @@ jobs:
       - uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/*
+            artifacts/*/*
