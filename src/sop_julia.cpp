@@ -101,7 +101,6 @@ SOP_julia::~SOP_julia(){
 }
 
 /// @brief julia thread finalizing and deinitialization
-/// Note that THIS IS NOT CALLED currently, due to the way houdini is exiting.
 /// @param  none
 void SOP_julia::atExit(void*){
     debug()<<"atexit called"<<endl;
@@ -109,17 +108,31 @@ void SOP_julia::atExit(void*){
         debug()<<"warning: instances still alive: "<<instance_count<<endl;
     }
     if(julia_thread){
-        unique_lock<mutex> access_lock(julia_access_mutex);
-        debug()<<"stopping julia thread"<<endl;
-        {
-            lock_guard<mutex> data_lock(jt_input_ready_mutex);
-            time_to_stop_julia_thread = true;
-        }
-        jt_input_ready.notify_one();
+        // THIS IS A HACKY TEMPORARY WORKAROUND!
+        debug()<<"yuria's hacky quick_exit"<<endl;
+        quick_exit(0);
+
+        // the problem is that jl_atexit_hook has real problems with houdini's jemalloc
+        // no idea what's going on
+        // but it's better to have a correct 0 exit code and no coredump than nonzero exit code and coredump
+        //
+        // Downside is that we do rob houdini and other plugins from being able to run UI_Exit's at exit callbacks
+        //
+        // see https://discourse.julialang.org/t/embedding-julia-jl-atexit-hook-always-segfaults/108722
+
+        // code below is how proper behaviour SHOULD look like
+
+        // unique_lock<mutex> access_lock(julia_access_mutex);
+        // debug()<<"stopping julia thread"<<endl;
+        // {
+        //     lock_guard<mutex> data_lock(jt_input_ready_mutex);
+        //     time_to_stop_julia_thread = true;
+        // }
+        // jt_input_ready.notify_one();
         
-        debug()<<"waiting for julia thread to join"<<endl;
-        julia_thread->join();
-        debug()<<"julia thread has joined!"<<endl;
+        // debug()<<"waiting for julia thread to join"<<endl;
+        // julia_thread->join();
+        // debug()<<"julia thread has joined!"<<endl;
     }
 }
 
@@ -165,7 +178,7 @@ static struct sigaction julia_sigsegv_action;
 int SOP_julia::julia_inner_function(){
     // assume all is locked properly
 
-     if(!jl_initialized){
+    if(!jl_initialized){
         debug()<<"initializing julia in thread " << this_thread::get_id() << endl;
         jl_init();
         sigaction(SIGSEGV, NULL, &julia_sigsegv_action);
@@ -282,7 +295,8 @@ int SOP_julia::julia_inner_function(){
 
 void SOP_julia::julia_dedicated_thread_func(){
     debug()<<"julia worker thread started in thread"<<endl;
-    
+    struct sigaction hou_sigsegv_handler;
+
     while(1){
         unique_lock<mutex> jt_input_lock(jt_input_ready_mutex);
         {
@@ -291,7 +305,9 @@ void SOP_julia::julia_dedicated_thread_func(){
 
             {
                 lock_guard<mutex> data_lock(julia_thread_input_data->datamod_mutex);
+                sigaction(SIGSEGV, NULL, &hou_sigsegv_handler);  // stash houdini's sigsegv handler
                 julia_thread_input_data->processing_errors = (julia_inner_function() == 0) ? JULIA_THREAD_PROCESSING_ALLGOOD : JULIA_THREAD_PROCESSING_SIMPLE_ERROR;
+                sigaction(SIGSEGV, &hou_sigsegv_handler, NULL);  // restore houdini's sigsegv handler
                 julia_thread_input_data->done = true;
             }
             julia_thread_input_data->notifier.notify_all();
@@ -302,9 +318,9 @@ void SOP_julia::julia_dedicated_thread_func(){
     if(jl_initialized){
         debug()<<"running julia exit hooks in thread "<<this_thread::get_id()<<endl;
         // restore julia sigsegv action just in case
-        sigaction(SIGSEGV, &julia_sigsegv_action, NULL);
-
+        sigaction(SIGSEGV, &julia_sigsegv_action, &hou_sigsegv_handler);
         jl_atexit_hook(0);
+        sigaction(SIGSEGV, &hou_sigsegv_handler, NULL);
     }
 }
 
@@ -317,14 +333,8 @@ OP_ERROR SOP_julia::cookMySop(OP_Context &context){
         sop_static_initialized = true;
         time_to_stop_julia_thread = false;
 
-        // the exit callback below is commented for a reason
-        // though logically it should be called in case of a normal shutdown,
-        // however, houdini seem to not perform normal shutdown, probably for performance reasons
-        // destructors seem to not be called on shutdown, and during UT_Exit's exit callbacks
-        // it seeems that some memory is already freed...
-        // anyway, at least on linux it seems that just not calling julia's exit callbacks works quite fine.
-        //
-        // UT_Exit::addExitCallback(SOP_julia::atExit);
+        // at exit cleanups, there are HACKS in there currently
+        UT_Exit::addExitCallback(SOP_julia::atExit);
         julia_thread = make_unique<thread>(julia_dedicated_thread_func);
     }
 
