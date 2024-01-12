@@ -1,32 +1,25 @@
 ## Julia Language wrangle for SideFx Houdini
 
 This is a slowly moving personal project.
-Tested only on linux with h18.5, h19.0 and julia 1.7.1
 
-#### Building
-##### Linux
-* download julia release [1.7.1](https://julialang.org/downloads/) (or try later ones) 
-* put it's contents into:
-  * julia directory in the root of the repository - this is needed just for includes
-  * julia directory in `hfs/<version>/dso/julia` - compiled .so will be looking for julia library there
-* adjust paths in tasks.json if you are using vscode
-
-should work. now you can add path to `hfs` directory to your `HOUDINI_PATH` (or move it somewhere already in `HOUDINI_PATH`), and houdini will load it
-
-use `HOUDINI_DSO_ERROR=2` to catch so loading errors
-
-ye, it's not yet very streamlined
-
-##### other OSes
-not yet.
-
-due to some os-specific things in julia it might not be as simple as just recompiling it. MacOS has higher chance to not require any modifications, while windows handles signals completely different.
+There is a bunch of unix-specific hacks in here that cannot be trivially translated to windows, so there is **currently no windows version available**.
 
 #### Installing
+
+check the [release](https://github.com/pedohorse/yuria/releases) section for latest release.
+
+release files are typically named like: `build-v1.0.2-h20.0.547-j1.10.0.zip`, where 
+- `v1.0.2` is the plugin's version
+- `h20.0.547` is the houdini version for which the plugin was compiled, though the build number (last number) does not matter, this will work for any houdini 20.0 build.
+- `j1.10.0` is the julia version for which the plugin was compiled. You will need to download that exact version of julia for the plugin to work.
+
 ##### to your user dir
-1. find appropriate `sop_julia.so` (or `dll` on windows (or whatever extention mac is using)) for appropriate houdini version. Build should not matter, only major.minor versions are important.
-2. copy it to your houdini userdir's dso folder, like `houdini19.0/dso`
-3. unpack julia release [1.7.1](https://julialang.org/downloads/) (or the version you built .so with) to `julia` folder in the same place  
+1. find appropriate archive from the [release](https://github.com/pedohorse/yuria/releases) page.
+2. copy `dso` dir from it to your houdini userdir, like `houdini19.0`, so you get `houdini19.0/dso/sop_julia.so`
+3. you need to put appropriate release of Julia into `dso/julia`. there is an `.sh` file that will do that automatically if you run it.
+4. Alternatively, to download Julia manually, download appropriate version from [julia's homepage](https://julialang.org/downloads/).
+   If you used release file `build-v1.0.2-h20.0.547-j1.10.0.zip` - you will need Julia 1.10.0.
+   - Unpack the contents into `dso/julia` dir.
 your file structure should look like this:  
 ```
 houdini19.0
@@ -69,9 +62,28 @@ all plugin-specific veriables start with `YURIA_`
 
 #### installing Julia packages
 For now there is no embedded into houdini julia console.  
-So you will need to start julia shell of the same version you use for houdini (also the same JULIA_PROJECT if set, and other config environment variables)
+So you will need to start julia shell of the same version you use for houdini (also the same `JULIA_PROJECT` if set, and other config environment variables)
 
 install all the packages you need the standard way through julia's interactive shell. After that you will be able to import them into houdini snippets.
+
+#### Building
+##### Linux
+* download [julia release](https://julialang.org/downloads/) you need
+* put it's contents into:
+  * julia directory in the root of the repository - this is needed just for includes
+  * julia directory in `hfs/<version>/dso/julia` - compiled .so will be looking for julia library there
+* set `HFS` environment variable to point your Houdini intallation location.
+* `make install` will build yuria plugin, and put `sop_julia.so` into `hfs/<verison>/dso/.`
+
+should work. now you can add path to `hfs/<version>` directory to your `HOUDINI_PATH` (or move it somewhere already in `HOUDINI_PATH`), and houdini will load it
+
+use `HOUDINI_DSO_ERROR=2` to catch so loading errors
+
+##### other OSes
+not yet.
+
+due to some os-specific things in julia it might not be as simple as just recompiling it. MacOS has higher chance to not require any modifications, while windows handles signals completely different.
+
 
 #### Known Problems:
 ~~There is a problem of (as it seems) julia's GC sometimes conflicting with houdini~~ the problem seem to be mitigated, you can see discussion [here](https://discourse.julialang.org/t/segfault-and-crash-embedding-when-julia-runs-multithreaded-gc/75221)
